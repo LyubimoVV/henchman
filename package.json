@@ -1,0 +1,36 @@
+{
+  "name": "henchman",
+  "version": "0.1.0",
+  "description": "AI Developer Assistant with RAG, MCP and Subagents",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "henchman": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["ai", "assistant", "rag", "mcp", "cli"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@clack/prompts": "^0.10.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "dotenv": "^16.4.7",
+    "glob": "^11.0.0",
+    "openai": "^4.77.0",
+    "picocolors": "^1.1.1",
+    "simple-git": "^3.27.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "tsx": "^4.19.0",
+    "vitest": "^2.1.0"
+  }
+}
