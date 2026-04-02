@@ -170,10 +170,4 @@ npm run typecheck   # Проверка типов
 npm run test         # Тесты
 ```
 
-## Принципы
-
-- SOLID, Clean Architecture
-- Dependency Injection через конструктор
-- Strategy для AI-моделей и форматов
-- Factory для сложных объектов
-- Observer для событий
+```
