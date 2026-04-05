@@ -15,6 +15,7 @@ export interface ReviewCliOptions {
   output?: string;
   noRag: boolean;
   debug: boolean;
+  lang?: 'en' | 'ru';
 }
 
 export async function runReviewCli(options: ReviewCliOptions): Promise<void> {
@@ -41,6 +42,7 @@ export async function runReviewCli(options: ReviewCliOptions): Promise<void> {
       format: options.format,
       useRag: !options.noRag,
       debug: options.debug,
+      lang: options.lang || 'ru',
     };
 
     const result = await runReview(reviewOptions);

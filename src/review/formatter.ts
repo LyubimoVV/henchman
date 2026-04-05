@@ -12,6 +12,35 @@ const TYPE_ICONS: Record<string, string> = {
   recommendation: '💡',
 };
 
+const LABELS = {
+  en: {
+    codeReview: 'AI Code Review',
+    noIssues: 'No significant issues found in this PR.',
+    reviewed: 'Reviewed',
+    files: 'files in',
+    potentialBugs: 'Potential Bugs',
+    architectureConcerns: 'Architecture Concerns',
+    recommendations: 'Recommendations',
+    stats: 'Stats',
+    filesAnalyzed: 'Files analyzed',
+    issuesFound: 'Issues found',
+    duration: 'Duration',
+  },
+  ru: {
+    codeReview: 'AI Code Review',
+    noIssues: 'Серьёзных проблем в PR не найдено.',
+    reviewed: 'Проверено',
+    files: 'файлов за',
+    potentialBugs: 'Потенциальные баги',
+    architectureConcerns: 'Архитектурные замечания',
+    recommendations: 'Рекомендации',
+    stats: 'Статистика',
+    filesAnalyzed: 'Файлов проанализировано',
+    issuesFound: 'Проблем найдено',
+    duration: 'Время выполнения',
+  },
+};
+
 export function formatReview(result: ReviewResult, format: OutputFormat): string {
   if (format === 'github') {
     return formatGitHubComment(result);
@@ -90,22 +119,24 @@ function formatIssueCli(issue: ReviewIssue): string {
 }
 
 export function formatGitHubComment(result: ReviewResult): string {
+  const lang = result.lang || 'ru';
+  const labels = LABELS[lang];
   const lines: string[] = [];
 
-  lines.push('## 🤖 AI Code Review');
+  lines.push('## 🤖 ' + labels.codeReview);
   lines.push('');
 
   if (result.issues.length === 0) {
-    lines.push('✅ **No significant issues found in this PR.**');
+    lines.push('✅ **' + labels.noIssues + '**');
     lines.push('');
-    lines.push(`_Reviewed ${result.filesAnalyzed} files in ${result.duration}ms_`);
+    lines.push(`_${labels.reviewed} ${result.filesAnalyzed} ${labels.files} ${result.duration}ms_`);
     return lines.join('\n');
   }
 
   const grouped = groupByType(result.issues);
 
   if (grouped.bug.length > 0) {
-    lines.push('### 🐛 Potential Bugs');
+    lines.push('### 🐛 ' + labels.potentialBugs);
     lines.push('');
     for (const issue of grouped.bug) {
       lines.push(formatIssueGitHub(issue));
@@ -114,7 +145,7 @@ export function formatGitHubComment(result: ReviewResult): string {
   }
 
   if (grouped.architecture.length > 0) {
-    lines.push('### 🏗️ Architecture Concerns');
+    lines.push('### 🏗️ ' + labels.architectureConcerns);
     lines.push('');
     for (const issue of grouped.architecture) {
       lines.push(formatIssueGitHub(issue));
@@ -123,7 +154,7 @@ export function formatGitHubComment(result: ReviewResult): string {
   }
 
   if (grouped.recommendation.length > 0) {
-    lines.push('### 💡 Recommendations');
+    lines.push('### 💡 ' + labels.recommendations);
     lines.push('');
     for (const issue of grouped.recommendation) {
       lines.push(formatIssueGitHub(issue));
@@ -134,11 +165,11 @@ export function formatGitHubComment(result: ReviewResult): string {
   lines.push('---');
   lines.push('');
   lines.push(`<details>`);
-  lines.push(`<summary>📊 Stats</summary>`);
+  lines.push(`<summary>📊 ${labels.stats}</summary>`);
   lines.push('');
-  lines.push(`- Files analyzed: ${result.filesAnalyzed}`);
-  lines.push(`- Issues found: ${result.issues.length}`);
-  lines.push(`- Duration: ${result.duration}ms`);
+  lines.push(`- ${labels.filesAnalyzed}: ${result.filesAnalyzed}`);
+  lines.push(`- ${labels.issuesFound}: ${result.issues.length}`);
+  lines.push(`- ${labels.duration}: ${result.duration}ms`);
   lines.push(`</details>`);
 
   return lines.join('\n');

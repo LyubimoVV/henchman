@@ -31,6 +31,7 @@ Review Options:
   --format <type>        Output format: cli | github (default: cli)
   --output <file>        Write output to file
   --no-rag               Disable RAG context gathering
+  --lang <code>          Language for output: en | ru (default: ru)
 
 Commands (in REPL):
   /help [query]          Get help about the project
@@ -141,6 +142,14 @@ function parseArgs(): ParsedArgs {
 
     if (arg === '--no-rag' && mode === 'review') {
       reviewOptions.noRag = true;
+      continue;
+    }
+
+    if (arg === '--lang' && mode === 'review') {
+      const nextArg = args[++i];
+      if (nextArg && (nextArg === 'en' || nextArg === 'ru')) {
+        reviewOptions.lang = nextArg as 'en' | 'ru';
+      }
       continue;
     }
 

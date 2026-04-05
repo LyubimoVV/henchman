@@ -9,9 +9,10 @@ export interface AnalyzerOptions {
   projectPath: string;
   useRag: boolean;
   debug: boolean;
+  lang?: 'en' | 'ru';
 }
 
-const REVIEW_SYSTEM_PROMPT = `You are an expert code reviewer. Analyze the provided diff and identify:
+const REVIEW_SYSTEM_PROMPT_EN = `You are an expert code reviewer. Analyze the provided diff and identify:
 
 1. **Bugs**: Potential bugs, null pointer errors, race conditions, off-by-one errors, unhandled edge cases
 2. **Architecture**: SOLID violations, tight coupling, code duplication, improper abstractions, missing error handling
@@ -42,13 +43,61 @@ Rules:
 - Prioritize critical issues over minor style suggestions
 - If no issues found, return empty issues array with a positive summary`;
 
+const REVIEW_SYSTEM_PROMPT_RU = `Ты — эксперт по код-ревью. Проанализируй предоставленный diff и найди:
+
+1. **Баги**: Потенциальные ошибки, null pointer, race conditions, ошибки на единицу, необработанные граничные случаи
+2. **Архитектура**: Нарушения SOLID, сильная связанность, дублирование кода, неправильные абстракции, отсутствие обработки ошибок
+3. **Рекомендации**: Улучшения производительности, читаемость, best practices, безопасность
+
+Контекст из кодовой базы будет предоставлен для понимания структуры проекта.
+
+Отвечай ТОЛЬКО валидным JSON в точном формате:
+{
+  "issues": [
+    {
+      "type": "bug|architecture|recommendation",
+      "file": "path/to/file.ts",
+      "line": 10,
+      "endLine": 15,
+      "severity": "critical|warning|info",
+      "message": "Описание проблемы",
+      "suggestion": "Как исправить"
+    }
+  ],
+  "summary": "Краткое общее резюме ревью"
+}
+
+Правила:
+- Сообщай только о проблемах, которые реально есть в diff
+- Указывай конкретные номера строк, когда возможно (в контексте diff)
+- Будь конструктивным и полезным
+- Приоритизируй критические проблемы над мелкими замечаниями стиля
+- Если проблем не найдено, верни пустой массив issues с позитивным резюме`;
+
+const USER_PROMPTS = {
+  en: {
+    reviewRequest: 'Review the following code changes.',
+    contextHeader: '## Relevant Codebase Context',
+    diffHeader: '## Diff to Review',
+    analyzeRequest: 'Analyze and respond with JSON only.',
+  },
+  ru: {
+    reviewRequest: 'Проанализируй следующие изменения кода.',
+    contextHeader: '## Контекст кодовой базы',
+    diffHeader: '## Diff для ревью',
+    analyzeRequest: 'Проанализируй и ответь только JSON.',
+  },
+};
+
 export class ReviewAnalyzer {
   private projectPath: string;
   private useRag: boolean;
+  private lang: 'en' | 'ru';
 
   constructor(options: AnalyzerOptions) {
     this.projectPath = options.projectPath;
     this.useRag = options.useRag;
+    this.lang = options.lang || 'en';
     logger.setDebugMode(options.debug);
   }
 
@@ -89,6 +138,7 @@ export class ReviewAnalyzer {
       stats: diff.stats,
       filesAnalyzed: diff.files.filter(f => f.status !== 'deleted').length,
       duration,
+      lang: this.lang,
     };
   }
 
@@ -162,11 +212,12 @@ export class ReviewAnalyzer {
     }
 
     const userMessage = this.buildUserMessage(files, diffContent, context, diff);
+    const systemPrompt = this.lang === 'ru' ? REVIEW_SYSTEM_PROMPT_RU : REVIEW_SYSTEM_PROMPT_EN;
 
     try {
       const response = await llmClient.chatCompletion({
         messages: [
-          { role: 'system', content: REVIEW_SYSTEM_PROMPT },
+          { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage },
         ],
         temperature: 0.3,
@@ -188,18 +239,19 @@ export class ReviewAnalyzer {
     context: string,
     diff: DiffResult
   ): string {
+    const prompts = USER_PROMPTS[this.lang];
     const parts: string[] = [];
 
-    parts.push(`Review the following code changes.`);
+    parts.push(prompts.reviewRequest);
     parts.push(`\nBase: ${diff.baseRef} → Head: ${diff.headRef}`);
     parts.push(`Files changed: ${files.length}, +${diff.stats.additions}/-${diff.stats.deletions}`);
 
     if (context) {
-      parts.push(`\n## Relevant Codebase Context\n${context}`);
+      parts.push(`\n${prompts.contextHeader}\n${context}`);
     }
 
-    parts.push(`\n## Diff to Review\n\`\`\`diff\n${diffContent}\n\`\`\``);
-    parts.push(`\nAnalyze and respond with JSON only.`);
+    parts.push(`\n${prompts.diffHeader}\n\`\`\`diff\n${diffContent}\n\`\`\``);
+    parts.push(`\n${prompts.analyzeRequest}`);
 
     return parts.join('\n');
   }

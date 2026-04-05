@@ -42,6 +42,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewResult> {
     projectPath: options.projectPath,
     useRag: options.useRag,
     debug: options.debug,
+    lang: options.lang,
   });
 
   const result = await analyzer.analyze(diff);

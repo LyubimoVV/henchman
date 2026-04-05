@@ -47,6 +47,7 @@ export interface ReviewResult {
   stats: DiffResult['stats'];
   filesAnalyzed: number;
   duration: number;
+  lang: 'en' | 'ru';
 }
 
 export interface ReviewOptions {
@@ -58,6 +59,7 @@ export interface ReviewOptions {
   outputFile?: string;
   useRag: boolean;
   debug: boolean;
+  lang?: 'en' | 'ru';
 }
 
 export interface GitHubAnnotation {
