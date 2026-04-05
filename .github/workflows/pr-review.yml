@@ -120,7 +120,6 @@ jobs:
 
       - name: Run AI Code Review
         id: review
-        working-directory: ${{ steps.repo.outputs.repo_path }}
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1' }}
@@ -134,16 +133,17 @@ jobs:
           fi
           
           echo "Running AI code review..."
-          npx ${{ steps.repo.outputs.henchman_path }}/src/index.ts review \
+          cd .henchman
+          npx tsx src/index.ts review \
             --pr ${{ inputs.pr_number }} \
             --format github \
-            --output review-output.md \
-            -p . \
+            --output ../review-output.md \
+            -p .. \
             $RAG_FLAG || true
           
           ISSUES=0
-          if [ -f .henchman-annotations.json ]; then
-            ISSUES=$(cat .henchman-annotations.json | jq 'length' || echo "0")
+          if [ -f ../.henchman-annotations.json ]; then
+            ISSUES=$(cat ../.henchman-annotations.json | jq 'length' || echo "0")
           fi
           echo "issues_count=$ISSUES" >> $GITHUB_OUTPUT
           echo "Review complete. Found $ISSUES issues."
@@ -152,25 +152,22 @@ jobs:
         if: always()
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        working-directory: ${{ steps.repo.outputs.repo_path }}
         run: |
-          if [ -f .henchman-review-comment.md ]; then
+          if [ -f ../.henchman-review-comment.md ]; then
             echo "Posting review comment..."
             gh pr comment ${{ inputs.pr_number }} \
               --repo ${{ steps.repo.outputs.repository }} \
-              --body-file .henchman-review-comment.md || true
+              --body-file ../.henchman-review-comment.md || true
             echo "Review comment posted successfully"
           else
             echo "No review comment file found"
           fi
-
       - name: Create Check Run with Annotations
-        if: always() && hashFiles('${{ steps.repo.outputs.repo_path }}/.henchman-annotations.json') != ''
+        if: always() && hashFiles('../.henchman-annotations.json') != ''
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        working-directory: ${{ steps.repo.outputs.repo_path }}
         run: |
-          ANNOTATIONS_FILE=.henchman-annotations.json
+          ANNOTATIONS_FILE=../.henchman-annotations.json
           
           if [ ! -f "$ANNOTATIONS_FILE" ]; then
             echo "No annotations file found"
