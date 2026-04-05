@@ -63,6 +63,10 @@ jobs:
           echo "owner=$(echo $REPO | cut -d'/' -f1)" >> $GITHUB_OUTPUT
           echo "name=$(echo $REPO | cut -d'/' -f2)" >> $GITHUB_OUTPUT
 
+          echo "repo_path=/home/runner/work/$name/$name" >> $GITHUB_OUTPUT
+
+          echo "henchman_path=/home/runner/work/$name/$name/.henchman" >> $GITHUB_OUTPUT
+
       - name: Checkout target repository
         uses: actions/checkout@v4
         with:
@@ -101,18 +105,24 @@ jobs:
       - name: Install Ollama (for embeddings)
         if: ${{ inputs.use_rag }}
         run: |
+          echo "Installing Ollama..."
           curl -fsSL https://ollama.com/install.sh | sh
           ollama serve &
           sleep 5
 
+        run: echo "Installing Ollama..."
+
       - name: Wait for Ollama and pull model
         if: ${{ inputs.use_rag }}
         run: |
+          echo "Waiting for Ollama to start..."
           timeout 120 bash -c 'until curl -s http://localhost:11434/api/tags > /dev/null; do sleep 3; done'
+          echo "Pulling nomic-embed-text model..."
           ollama pull nomic-embed-text
 
       - name: Run AI Code Review
         id: review
+        working-directory: ${{ steps.repo.outputs.repo_path }}
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1' }}
@@ -125,7 +135,8 @@ jobs:
             RAG_FLAG="--no-rag"
           fi
           
-          npx tsx .henchman/src/index.ts review \
+          echo "Running AI code review..."
+          npx ${{ steps.repo.outputs.henchman_path }}/src/index.ts review \
             --pr ${{ inputs.pr_number }} \
             --format github \
             --output review-output.md \
@@ -137,30 +148,38 @@ jobs:
             ISSUES=$(cat .henchman-annotations.json | jq 'length' || echo "0")
           fi
           echo "issues_count=$ISSUES" >> $GITHUB_OUTPUT
+          echo "Review complete. Found $ISSUES issues."
 
       - name: Post Review Comment
         if: always()
         env:
           GITHUB_TOKEN: ${{ github.token }}
+        working-directory: ${{ steps.repo.outputs.repo_path }}
         run: |
           if [ -f .henchman-review-comment.md ]; then
-            gh api repos/${{ steps.repo.outputs.repository }}/pulls/${{ inputs.pr_number }}/reviews \
-              -X POST \
-              -H "Accept: application/vnd.github+json" \
-              -f body="@.henchman-review-comment.md" \
-              -f event="COMMENT" \
-              -f commit_id="${{ inputs.head_sha }}" || \
+            echo "Posting review comment..."
             gh pr comment ${{ inputs.pr_number }} \
               --repo ${{ steps.repo.outputs.repository }} \
               --body-file .henchman-review-comment.md || true
+            echo "Review comment posted successfully"
+          else
+            echo "No review comment file found"
           fi
 
       - name: Create Check Run with Annotations
-        if: always() && hashFiles('.henchman-annotations.json') != ''
+        if: always() && hashFiles('${{ steps.repo.outputs.repo_path }}/.henchman-annotations.json') != ''
         env:
           GITHUB_TOKEN: ${{ github.token }}
+        working-directory: ${{ steps.repo.outputs.repo_path }}
         run: |
-          ANNOTATIONS=$(cat .henchman-annotations.json)
+          ANNOTATIONS_FILE=.henchman-annotations.json
+          
+          if [ ! -f "$ANNOTATIONS_FILE" ]; then
+            echo "No annotations file found"
+            exit 0
+          fi
+          
+          ANNOTATIONS=$(cat "$ANNOTATIONS_FILE")
           CRITICAL_COUNT=$(echo "$ANNOTATIONS" | jq '[.[] | select(.annotation_level == "failure")] | length')
           WARNING_COUNT=$(echo "$ANNOTATIONS" | jq '[.[] | select(.annotation_level == "warning")] | length')
           
@@ -175,13 +194,27 @@ jobs:
             TITLE="No issues found"
           fi
           
+          echo "Creating check run with conclusion: $CONCLUSION"
+          
+          cat > /tmp/check-output.json <<EOF
+          {
+            "name": "AI Code Review",
+            "head_sha": "${{ inputs.head_sha }}",
+            "status": "completed",
+            "conclusion": "$CONCLUSION",
+            "output": {
+              "title": "$TITLE",
+              "summary": "Review completed",
+              "annotations": $ANNOTATIONS
+            }
+          }
+          EOF
+          
           gh api \
             repos/${{ steps.repo.outputs.repository }}/check-runs \
-            -f name="AI Code Review" \
-            -f head_sha="${{ inputs.head_sha }}" \
-            -f status="completed" \
-            -f conclusion="$CONCLUSION" \
-            -F output='{"title":"'"$TITLE"'","summary":"Review completed","annotations":'"$ANNOTATIONS"'}' || true
+            --input @/tmp/check-output.json || true
+          
+          echo "Check run created successfully"
 
       - name: Upload Review Artifacts
         if: always()
