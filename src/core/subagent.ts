@@ -24,6 +24,15 @@ export class Subagent {
   async execute(): Promise<SubagentResult> {
     logger.subagentSpawn(this.task.id, this.task.description);
 
+    if (this.task.tools.length === 0) {
+      logger.warn('subagent', 'Subagent has no tools available', { taskId: this.task.id });
+    } else {
+      logger.info('subagent', 'Subagent tools available', {
+        taskId: this.task.id,
+        tools: this.task.tools.map(t => t.name),
+      });
+    }
+
     try {
       const systemPrompt = this.buildSystemPrompt();
       const messages: ChatMessage[] = [
@@ -75,6 +84,10 @@ export class Subagent {
       'You are a specialized subagent working on a specific task.',
       '',
       `## Available Tools: ${toolNames}`,
+      '',
+      '## Restrictions:',
+      '- You do NOT have access to delegation tools (delegate, fan-out, chain, router).',
+      '- Use only the tools explicitly listed above.',
       '',
       '## Context:',
       `- Project Path: ${this.task.contextIn.projectPath}`,

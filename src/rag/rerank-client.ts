@@ -8,7 +8,7 @@ class RerankClient {
 
   constructor() {
     this.url = appConfig.rerank.url;
-    this.timeout = 30000;
+    this.timeout = 60000;
   }
 
   async rerank(

@@ -2,6 +2,7 @@ export { bashTool } from './bash';
 export { fileReadTool } from './file-read';
 export { fileWriteTool } from './file-write';
 export { findFilesTool } from './find-files';
+export { createDelegateTool } from './delegate';
 
 import { bashTool } from './bash';
 import { fileReadTool } from './file-read';

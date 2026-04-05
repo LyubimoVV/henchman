@@ -23,7 +23,7 @@ export function createGitBranchTool(projectPath: string): ToolDefinition {
       } catch (error) {
         const err = error as Error;
         if (err.message.includes('not a git repository')) {
-          throw new Error('Not a git repository');
+          throw new Error(`Not a git repository: ${projectPath}`);
         }
         throw error;
       }

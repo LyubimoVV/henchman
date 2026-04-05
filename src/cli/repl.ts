@@ -15,6 +15,8 @@ export async function startRepl(options: ReplOptions): Promise<void> {
 
   p.intro(pc.cyan(pc.bold('Henchman - AI Developer Assistant')));
 
+  logger.pause();
+  
   const s = p.spinner();
   s.start('Initializing project...');
 
@@ -24,6 +26,7 @@ export async function startRepl(options: ReplOptions): Promise<void> {
   });
 
   s.stop('Project initialized');
+  logger.resume();
 
   const context = orchestrator.getContext();
   console.log(pc.gray('\nProject Info:'));
@@ -31,10 +34,12 @@ export async function startRepl(options: ReplOptions): Promise<void> {
   console.log(`  Branch: ${context.gitBranch ?? 'unknown'}\n`);
 
   while (true) {
-    const input = await p.text({
-      message: 'Ask a question',
-      placeholder: 'Type /help for commands or ask about the project...',
-    });
+    const input = await logger.withPaused(async () => 
+      p.text({
+        message: 'Ask a question',
+        placeholder: 'Type /help for commands or ask about the project...',
+      })
+    );
 
     if (p.isCancel(input)) {
       p.outro(pc.yellow('Cancelled'));
@@ -49,18 +54,35 @@ export async function startRepl(options: ReplOptions): Promise<void> {
 
       switch (command) {
         case 'help':
-          const helpSpinner = p.spinner();
-          helpSpinner.start('Searching...');
-          const helpResult = await handleHelpCommand(orchestrator, argStr);
-          helpSpinner.stop();
-          console.log('\n' + helpResult + '\n');
+          if (options.debug) {
+            console.log(pc.cyan('\nSearching...'));
+            const helpResult = await handleHelpCommand(orchestrator, argStr);
+            console.log('\n' + helpResult + '\n');
+          } else {
+            const helpResult = await logger.withPaused(async () => {
+              const helpSpinner = p.spinner();
+              helpSpinner.start('Searching...');
+              const result = await handleHelpCommand(orchestrator, argStr);
+              helpSpinner.stop();
+              return result;
+            });
+            console.log('\n' + helpResult + '\n');
+          }
           break;
 
         case 'index':
-          const indexSpinner = p.spinner();
-          indexSpinner.start('Re-indexing project...');
-          const indexResult = await handleIndexCommand(orchestrator);
-          indexSpinner.stop(indexResult);
+          if (options.debug) {
+            console.log(pc.cyan('Re-indexing project...'));
+            const indexResult = await handleIndexCommand(orchestrator);
+            console.log(indexResult);
+          } else {
+            await logger.withPaused(async () => {
+              const indexSpinner = p.spinner();
+              indexSpinner.start('Re-indexing project...');
+              const result = await handleIndexCommand(orchestrator);
+              indexSpinner.stop(result);
+            });
+          }
           break;
 
         case 'tools':
@@ -82,21 +104,35 @@ export async function startRepl(options: ReplOptions): Promise<void> {
           console.log(pc.gray('Type /help to see available commands'));
       }
 
+      console.log(pc.gray('\n  Commands: /help /index /tools /status /exit'));
       continue;
     }
 
-    const responseSpinner = p.spinner();
-    responseSpinner.start('Thinking...');
-
     try {
-      const response = await orchestrator.handleMessage(message);
-      responseSpinner.stop();
-      console.log('\n' + pc.green('Response:') + '\n');
-      console.log(response);
-      console.log();
+      if (options.debug) {
+        console.log(pc.cyan('\nThinking...'));
+        const response = await orchestrator.handleMessage(message);
+        console.log('\n' + pc.green('Response:') + '\n');
+        console.log(response);
+        console.log();
+        console.log(pc.gray('  Commands: /help /index /tools /status /exit'));
+      } else {
+        const response = await logger.withPaused(async () => {
+          const responseSpinner = p.spinner();
+          responseSpinner.start('Thinking...');
+          const result = await orchestrator.handleMessage(message);
+          responseSpinner.stop();
+          return result;
+        });
+        
+        console.log('\n' + pc.green('Response:') + '\n');
+        console.log(response);
+        console.log();
+        console.log(pc.gray('  Commands: /help /index /tools /status /exit'));
+      }
     } catch (error) {
-      responseSpinner.stop();
       console.log(pc.red(`Error: ${(error as Error).message}`));
+      console.log(pc.gray('\n  Commands: /help /index /tools /status /exit'));
     }
   }
 }

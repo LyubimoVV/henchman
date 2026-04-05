@@ -3,19 +3,19 @@ import type {
   ChatMessage,
   ToolDefinition,
   SubagentContext,
-  RetrievedChunk,
 } from './types';
-import { createConversationContext, buildSystemPrompt, addUserMessage, addAssistantMessage, setGitBranch, setRetrievedChunks, setIndexedFiles, mergeSubagentContext, addSubagent, updateSubagentStatus, removeSubagent } from './context';
+import type { DelegationPattern, FanOutConfig, ChainConfig, RouterConfig } from './delegation/types';
+import { createConversationContext, buildSystemPrompt, addUserMessage, addAssistantMessage, setGitBranch, setIndexedFiles, mergeSubagentContext, addSubagent, updateSubagentStatus, removeSubagent } from './context';
 import { toolRegistry } from './tool-registry';
-import { toolExecutor } from './tool-executor';
 import { toolUseLoop } from './tool-use-loop';
 import { createSubagent } from './subagent';
+import { DelegationManager } from './delegation/manager';
+import { categorizeTools } from './tool-categories';
 import { logger } from './logger';
-import { retriever } from '../rag/retriever';
 import { indexer } from '../rag/indexer';
 import { vectorStore } from '../rag/vector-store';
 import { createMcpTools } from '../tools/mcp';
-import { systemTools } from '../tools/system';
+import { systemTools, createDelegateTool } from '../tools/system';
 import { ragTools, setCurrentProjectPath } from '../tools/rag';
 
 export interface OrchestratorOptions {
@@ -25,11 +25,20 @@ export interface OrchestratorOptions {
 
 export class Orchestrator {
   private context: ConversationContext;
-  private allTools: ToolDefinition[];
+  private orchestratorTools: ToolDefinition[];
+  private subagentTools: ToolDefinition[];
+  private delegationManager: DelegationManager;
 
   constructor(options: OrchestratorOptions) {
     this.context = createConversationContext(options.projectPath);
-    this.allTools = [];
+    this.orchestratorTools = [];
+    this.subagentTools = [];
+
+    this.delegationManager = new DelegationManager({
+      projectPath: options.projectPath,
+      indexedFiles: [],
+      subagentTools: [],
+    });
 
     this.initializeTools(options.projectPath);
 
@@ -43,26 +52,47 @@ export class Orchestrator {
 
     const mcpTools = createMcpTools(projectPath);
 
-    this.allTools = [
+    const delegateTool = createDelegateTool({
+      executeDelegation: async (pattern, config) => {
+        return this.delegationManager.execute(pattern, config);
+      },
+    });
+
+    const allTools: ToolDefinition[] = [
       ...systemTools,
+      delegateTool,
       ...mcpTools,
       ...ragTools,
     ];
 
-    toolRegistry.registerMany(this.allTools);
-    logger.info('main', `Registered ${this.allTools.length} tools`);
+    const { orchestratorTools, subagentTools } = categorizeTools(allTools);
+    
+    this.orchestratorTools = orchestratorTools;
+    this.subagentTools = subagentTools;
+
+    this.delegationManager.updateOptions({ subagentTools: this.subagentTools });
+
+    toolRegistry.registerMany(allTools);
+    logger.info('main', `Registered tools: ${orchestratorTools.length} for orchestrator, ${subagentTools.length} for subagents`);
   }
 
   private async autoIndexProject(projectPath: string): Promise<void> {
-    logger.info('main', 'Auto-indexing project...');
+    logger.info('main', 'Auto-indexing project...', { projectPath });
 
     try {
-      const gitBranchTool = this.allTools.find((t) => t.name === 'git_branch');
+      const gitBranchTool = this.subagentTools.find((t: ToolDefinition) => t.name === 'git_branch');
       if (gitBranchTool) {
-        const result = await toolExecutor.execute('git_branch', {});
+        const result = await gitBranchTool.execute({});
         if (result.success && result.result) {
           const branch = (result.result as { branch: string }).branch;
           this.context = setGitBranch(this.context, branch);
+          this.delegationManager.updateOptions({ gitBranch: branch });
+          logger.info('main', `Git branch detected: ${branch}`);
+        } else {
+          logger.debug('main', 'Could not get git branch', { 
+            success: result.success, 
+            hasResult: !!result.result 
+          });
         }
       }
     } catch (error) {
@@ -84,10 +114,8 @@ export class Orchestrator {
   async handleMessage(userMessage: string): Promise<string> {
     logger.info('main', `Processing message: ${userMessage.substring(0, 50)}...`);
 
-    const relevantChunks = await this.getRelevantContext(userMessage);
-    if (relevantChunks.length > 0) {
-      this.context = setRetrievedChunks(this.context, relevantChunks);
-    }
+    // RAG отключен по умолчанию - LLM использует RAG tools когда нужно
+    // Автоматический RAG только в /help команде
 
     this.context = addUserMessage(this.context, userMessage);
 
@@ -98,8 +126,8 @@ export class Orchestrator {
     ];
 
     const result = await toolUseLoop(messages, {
-      maxIterations: 10,
-      tools: this.allTools,
+      maxIterations: 15,
+      tools: this.orchestratorTools,
       onToolCall: (name, args) => {
         logger.toolCall(name, args);
       },
@@ -113,20 +141,6 @@ export class Orchestrator {
     }
 
     return result.finalContent || 'I was unable to generate a response. Please try again.';
-  }
-
-  private async getRelevantContext(query: string): Promise<RetrievedChunk[]> {
-    if (vectorStore.stats().totalChunks === 0) {
-      return [];
-    }
-
-    try {
-      const chunks = await retriever.search(query, { rerankTopN: 3 });
-      return chunks;
-    } catch (error) {
-      logger.debug('main', 'Failed to retrieve context', { error: (error as Error).message });
-      return [];
-    }
   }
 
   async spawnSubagent(
@@ -173,13 +187,41 @@ export class Orchestrator {
   }
 
   getTools(): ToolDefinition[] {
-    return this.allTools;
+    return this.orchestratorTools;
+  }
+
+  getSubagentTools(): ToolDefinition[] {
+    return this.subagentTools;
   }
 
   async reindexProject(): Promise<{ files: number; chunks: number }> {
     vectorStore.clear();
     const result = await indexer.indexProject(this.context.projectPath);
     this.context = setIndexedFiles(this.context, vectorStore.getIndexedFiles());
+    
+    this.delegationManager.updateOptions({
+      indexedFiles: this.context.indexedFiles,
+    });
+    
     return { files: result.filesProcessed, chunks: result.chunksCreated };
+  }
+
+  async fanOut(config: FanOutConfig) {
+    return this.delegationManager.execute('fan-out', config);
+  }
+
+  async chain(config: ChainConfig) {
+    return this.delegationManager.execute('chain', config);
+  }
+
+  async route(config: RouterConfig) {
+    return this.delegationManager.execute('router', config);
+  }
+
+  async delegate(
+    pattern: DelegationPattern,
+    config: FanOutConfig | ChainConfig | RouterConfig
+  ) {
+    return this.delegationManager.execute(pattern, config);
   }
 }

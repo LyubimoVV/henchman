@@ -9,13 +9,14 @@ AI Developer Assistant с RAG, MCP и субагентами.
 │                    CLI Layer                         │
 │            (REPL / One-shot / Commands)              │
 └──────────────────────┬──────────────────────────────┘
-                       │
-                       ▼
+                        │
+                        ▼
 ┌─────────────────────────────────────────────────────┐
 │                 MAIN AGENT (Orchestrator)            │
 │  - Intent extraction via LLM                        │
 │  - Tool selection (function calling)                │
 │  - Subagent lifecycle management                    │
+│  - Delegation patterns (fan-out, chain, router)     │
 └────┬──────────┬──────────┬──────────────────────────┘
      │          │          │
      ▼          ▼          ▼
@@ -32,6 +33,79 @@ AI Developer Assistant с RAG, MCP и субагентами.
 - **Субагенты**: Изолированные агенты для специфических задач
 - **Function Calling**: LLM выбирает инструменты по смыслу запроса
 - **REPL / One-shot**: Интерактивный режим или разовый запрос
+- **Паттерны делегирования**: Fan-Out, Chain, Router
+
+## Паттерны делегирования
+
+Delegate tool позволяет orchestrator'у создавать субагентов для параллельного или последовательного выполнения задач.
+
+**Важно:** Субагенты работают в изоляции и НЕ имеют доступа к delegate tool (защита от рекурсии).
+
+| Паттерн | Описание | Use-case |
+|---------|----------|----------|
+| **fan-out** | Параллельное выполнение | Анализ всех файлов в директории |
+| **chain** | Последовательная передача результатов | Чтение → Анализ → Генерация |
+| **router** | Маршрутизация по условию | Выбор агента по типу запроса |
+
+### Fan-Out (Параллельное выполнение)
+
+```json
+{
+  "pattern": "fan-out",
+  "config": {
+    "tasks": [
+      { "description": "Find TODOs in src/", "tools": ["rag_search", "read_file"] },
+      { "description": "Find FIXMEs in src/", "tools": ["rag_search", "read_file"] }
+    ],
+    "concurrency": 2,
+    "failFast": false
+  }
+}
+```
+
+### Chain (Последовательная цепочка)
+
+```json
+{
+  "pattern": "chain",
+  "config": {
+    "tasks": [
+      { "description": "Read package.json", "tools": ["read_file"] },
+      { "description": "Extract dependencies", "tools": ["analyze"] },
+      { "description": "Check for updates", "tools": ["bash"] }
+    ],
+    "passResults": true
+  }
+}
+```
+
+### Router (Маршрутизация по условию)
+
+```json
+{
+  "pattern": "router",
+  "config": {
+    "routes": [
+      {
+        "name": "git",
+        "description": "Git operations: commit, branch, diff",
+        "task": { "description": "Execute git command", "tools": ["git_branch", "git_diff"] }
+      },
+      {
+        "name": "files",
+        "description": "File operations: read, write, list",
+        "task": { "description": "File operation", "tools": ["read_file", "write_file"] }
+      }
+    ],
+    "input": "Show me the current branch"
+  }
+}
+```
+
+**Важно:**
+- Субагенты работают в **изоляции** и НЕ имеют доступа к delegate tool
+- В `tasks.tools` указывайте только прямые инструменты (без delegate)
+- Субагенты не могут вкладывать делегирования (защита от рекурсии)
 
 ## Установка
 
@@ -93,12 +167,25 @@ src/
 │   ├── context.ts        # Контекст разговора
 │   ├── types.ts          # Типы
 │   ├── logger.ts         # Логгер
-│   └── error-handler.ts  # Обработка ошибок
+│   ├── error-handler.ts  # Обработка ошибок
+│   └── delegation/       # Паттерны делегирования
+│       ├── types.ts       # Типы делегирования
+│       ├── base.ts        # Базовый класс executor
+│       ├── fan-out.ts     # Параллельное выполнение
+│       ├── chain.ts       # Последовательная цепочка
+│       ├── router.ts      # Маршрутизация по условию
+│       ├── manager.ts     # Фасад для делегирования
+│       └── index.ts       # Экспорт модуля
 ├── llm/
 │   ├── client.ts         # DeepSeek клиент
 │   └── function-calling.ts
 ├── tools/
 │   ├── system/           # System tools
+│   │   ├── bash.ts
+│   │   ├── file-read.ts
+│   │   ├── file-write.ts
+│   │   ├── find-files.ts
+│   │   └── delegate.ts   # Tool для делегирования
 │   ├── mcp/              # MCP tools
 │   └── rag/              # RAG tools
 ├── rag/

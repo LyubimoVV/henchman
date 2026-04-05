@@ -31,7 +31,7 @@ export async function handleHelpCommand(
     ].join('\n');
   }
 
-  const results = await retriever.search(query, { useRerank: false, rerankTopN: 5 });
+  const results = await retriever.search(query, { rerankTopN: 5 });
 
   if (results.length === 0) {
     return pc.yellow('No relevant documentation found. Try /index to re-index the project.');

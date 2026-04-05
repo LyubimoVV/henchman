@@ -15,6 +15,7 @@ const CATEGORY_COLORS: Record<LogCategory, (str: string) => string> = {
   mcp: pc.blue,
   system: pc.gray,
   tool: pc.yellow,
+  delegation: pc.blue,
 };
 
 const LEVEL_COLORS: Record<LogLevel, (str: string) => string> = {
@@ -27,6 +28,8 @@ const LEVEL_COLORS: Record<LogLevel, (str: string) => string> = {
 class Logger {
   private minLevel: LogLevel;
   private debugMode: boolean;
+  private paused: boolean = false;
+  private pendingLogs: string[] = [];
 
   constructor(minLevel: LogLevel = 'warn', debugMode: boolean = false) {
     this.minLevel = (process.env.LOG_LEVEL as LogLevel) ?? minLevel;
@@ -55,12 +58,17 @@ class Logger {
   }
 
   private formatEntry(entry: LogEntry): string {
+    const prefix = entry.category === 'main' ? '[Orchestrator] ' :
+                 entry.category === 'subagent' ? '[Subagent] ' :
+                 entry.category === 'delegation' ? '[Delegation] ' :
+                 '';
+
     const timestamp = pc.gray(`[${this.formatTimestamp(entry.timestamp)}]`);
     const category = CATEGORY_COLORS[entry.category](entry.category.padEnd(10));
     const level = LEVEL_COLORS[entry.level](entry.level.toUpperCase().padEnd(5));
     const message = LEVEL_COLORS[entry.level](entry.message);
 
-    let formatted = `${timestamp} ${category} ${level} ${message}`;
+    let formatted = `${prefix}${timestamp} ${category} ${level} ${message}`;
 
     if (this.debugMode && entry.meta && Object.keys(entry.meta).length > 0) {
       formatted += pc.gray(` ${JSON.stringify(entry.meta)}`);
@@ -69,16 +77,33 @@ class Logger {
     return formatted;
   }
 
+  pause(): void {
+    this.paused = true;
+  }
+
+  resume(): void {
+    this.paused = false;
+    this.pendingLogs.forEach(log => console.error(log));
+    this.pendingLogs = [];
+  }
+
+  async withPaused<T>(fn: () => Promise<T>): Promise<T> {
+    this.pause();
+    try {
+      return await fn();
+    } finally {
+      this.resume();
+    }
+  }
+
   log(entry: LogEntry): void {
     if (!this.shouldLog(entry.level)) return;
     const output = this.formatEntry(entry);
-
-    if (entry.level === 'error') {
-      console.error(output);
-    } else if (entry.level === 'warn') {
-      console.warn(output);
+    
+    if (this.paused) {
+      this.pendingLogs.push(output);
     } else {
-      console.log(output);
+      console.error(output);
     }
   }
 
@@ -130,6 +155,15 @@ class Logger {
   subagentComplete(taskId: string, status: 'success' | 'error'): void {
     const icon = status === 'success' ? '✓' : '✗';
     this.info('subagent', `${icon} Completed: ${taskId}`, { status });
+  }
+
+  delegationStart(pattern: string, _config: unknown): void {
+    this.info('delegation', `Starting delegation`, { pattern });
+  }
+
+  delegationComplete(pattern: string, success: boolean): void {
+    const icon = success ? '✓' : '✗';
+    this.info('delegation', `${icon} Delegation complete`, { pattern, success });
   }
 
   ragOperation(operation: string, meta?: Record<string, unknown>): void {

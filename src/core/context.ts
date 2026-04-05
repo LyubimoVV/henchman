@@ -127,12 +127,23 @@ export function buildSystemPrompt(context: ConversationContext): string {
   parts.push(
     '',
     '## Instructions',
-    '- Use available tools to gather information before answering questions.',
-    '- When asked about project structure, use the list_files tool.',
-    '- When asked about file contents, use the read_file tool.',
-    '- When asked about git status, use git_branch and git_diff tools.',
-    '- Provide concise, accurate responses based on actual project data.',
-    '- If you cannot find information, say so clearly.'
+    '- You are a coordinator with access to tools and delegation capabilities.',
+    '- For simple operations (read file, list files, git), use direct tools.',
+    '- For complex multi-step tasks requiring coordination, use the delegate tool.',
+    '',
+    '## Delegation Patterns (for complex tasks only)',
+    '- fan-out: Execute multiple independent tasks in parallel',
+    '- chain: Execute tasks sequentially, passing results forward',
+    '- router: Route input to appropriate task based on content',
+    '',
+    '## Important Restrictions',
+    '- Subagents work in isolation and cannot use the delegate tool.',
+    '- Do NOT nest delegations - use direct tools in task definitions.',
+    '',
+    '## Response Guidelines',
+    '- Use appropriate tools for the task complexity.',
+    '- Provide concise, accurate responses based on tool results.',
+    '- If a tool fails, report the error clearly.'
   );
 
   return parts.filter(Boolean).join('\n');

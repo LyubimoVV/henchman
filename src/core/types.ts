@@ -1,5 +1,5 @@
 export type ToolCategory = 'rag' | 'mcp' | 'system';
-export type LogCategory = 'main' | 'subagent' | 'rag' | 'mcp' | 'system' | 'tool';
+export type LogCategory = 'main' | 'subagent' | 'rag' | 'mcp' | 'system' | 'tool' | 'delegation';
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 export type ErrorStrategy = 'retry' | 'fallback' | 'abort' | 'ask_user';
 

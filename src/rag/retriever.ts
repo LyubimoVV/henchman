@@ -11,7 +11,7 @@ export interface SearchOptions {
 }
 
 const DEFAULT_OPTIONS: SearchOptions = {
-  topK: 20,
+  topK: 10,
   rerankTopN: 5,
   useRerank: true,
 };

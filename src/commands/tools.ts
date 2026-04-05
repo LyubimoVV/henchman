@@ -2,30 +2,44 @@ import type { Orchestrator } from '../core/orchestrator';
 import pc from 'picocolors';
 
 export function handleToolsCommand(orchestrator: Orchestrator): string {
-  const tools = orchestrator.getTools();
-  const grouped = {
-    system: tools.filter((t) => t.category === 'system'),
-    mcp: tools.filter((t) => t.category === 'mcp'),
-    rag: tools.filter((t) => t.category === 'rag'),
-  };
+  const orchestratorTools = orchestrator.getTools();
+  const subagentTools = orchestrator.getSubagentTools();
 
   const lines: string[] = [pc.cyan('Available Tools'), ''];
 
-  lines.push(pc.yellow('System Tools:'));
-  for (const tool of grouped.system) {
-    lines.push(`  ${pc.green(tool.name)} - ${tool.description.substring(0, 60)}...`);
+  lines.push(pc.yellow('Orchestrator Tools (for LLM):'));
+  for (const tool of orchestratorTools) {
+    lines.push(`  ${pc.green(tool.name)} - ${tool.description.substring(0, 80)}...`);
   }
 
   lines.push('');
-  lines.push(pc.yellow('MCP Tools:'));
-  for (const tool of grouped.mcp) {
-    lines.push(`  ${pc.green(tool.name)} - ${tool.description.substring(0, 60)}...`);
+  lines.push(pc.yellow('Subagent Tools (via delegate):'));
+  
+  const grouped = {
+    system: subagentTools.filter((t) => t.category === 'system'),
+    mcp: subagentTools.filter((t) => t.category === 'mcp'),
+    rag: subagentTools.filter((t) => t.category === 'rag'),
+  };
+
+  if (grouped.system.length > 0) {
+    lines.push(pc.gray('  System:'));
+    for (const tool of grouped.system) {
+      lines.push(`    ${pc.green(tool.name)}`);
+    }
   }
 
-  lines.push('');
-  lines.push(pc.yellow('RAG Tools:'));
-  for (const tool of grouped.rag) {
-    lines.push(`  ${pc.green(tool.name)} - ${tool.description.substring(0, 60)}...`);
+  if (grouped.mcp.length > 0) {
+    lines.push(pc.gray('  MCP:'));
+    for (const tool of grouped.mcp) {
+      lines.push(`    ${pc.green(tool.name)}`);
+    }
+  }
+
+  if (grouped.rag.length > 0) {
+    lines.push(pc.gray('  RAG:'));
+    for (const tool of grouped.rag) {
+      lines.push(`    ${pc.green(tool.name)}`);
+    }
   }
 
   return lines.join('\n');
