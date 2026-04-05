@@ -148,6 +148,123 @@ tsx src/index.ts "Что делает этот проект?" -p /path/to/projec
 | `/status` | Текущее состояние |
 | `/exit` | Выход |
 
+## AI Code Review
+
+Автоматическое ревью кода с использованием RAG и LLM.
+
+### Локальный запуск
+
+```bash
+# Ревью изменений относительно main
+henchman review
+
+# Ревью относительно конкретной ветки
+henchman review --base develop
+
+# Ревью PR (требуется gh CLI)
+henchman review --pr 123
+
+# GitHub формат для CI
+henchman review --format github --output review.md
+```
+
+### Опции review
+
+| Опция | Описание |
+|-------|----------|
+| `--base <branch>` | Базовая ветка (default: main) |
+| `--head <branch>` | Целевая ветка (default: HEAD) |
+| `--pr <number>` | Номер PR для ревью |
+| `--format <type>` | Формат вывода: cli \| github |
+| `--output <file>` | Записать результат в файл |
+| `--no-rag` | Отключить RAG контекст |
+
+### Подключение к другому проекту
+
+Henchman использует reusable workflow. Для подключения AI Code Review к любому репозиторию:
+
+**1. Создать workflow в целевом проекте:**
+
+Файл `.github/workflows/pr-review.yml`:
+```yaml
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  review:
+    uses: LyubimoVV/henchman/.github/workflows/pr-review.yml@master
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      head_sha: ${{ github.event.pull_request.head.sha }}
+    secrets: inherit
+```
+
+**2. Добавить секреты:**
+
+В GitHub репозитории → Settings → Secrets and variables → Actions:
+- `DEEPSEEK_API_KEY` — API ключ DeepSeek (обязательно)
+- `DEEPSEEK_BASE_URL` — URL API (опционально, по умолчанию https://api.deepseek.com/v1)
+- `DEEPSEEK_MODEL` — модель (опционально, по умолчанию deepseek-chat)
+
+**3. Готово!**
+
+При создании/обновлении PR автоматически запустится AI Code Review.
+
+### Опции reusable workflow
+
+| Input | Описание | Обязательно |
+|-------|----------|-------------|
+| `pr_number` | Номер PR | ✅ |
+| `head_sha` | SHA коммита | ✅ |
+| `repository` | Репозиторий (owner/repo) | ❌ (по умолчанию текущий) |
+| `use_rag` | Включить RAG контекст | ❌ (по умолчанию true) |
+
+### GitHub Actions (локальный henchman)
+
+Для запуска review внутри самого henchman:
+
+```yaml
+# .github/workflows/pr-review.yml
+on:
+  pull_request:
+    types: [opened, synchronize]
+```
+
+Результаты:
+- **PR комментарий** с детальным ревью
+- **Annotations** на конкретные строки кода
+- **Check Run** со статусом (✅/⚠️/❌)
+
+### Кэширование RAG
+
+В CI индекс кэшируется для ускорения:
+
+```yaml
+- uses: actions/cache@v4
+  with:
+    path: ~/.henchman
+    key: rag-index-${{ hashFiles('**/*.ts') }}
+```
+
+### Типы проблем
+
+| Тип | Описание |
+|-----|----------|
+| 🐛 **Bug** | Потенциальные баги, null pointer, race conditions |
+| 🏗️ **Architecture** | Нарушения SOLID, coupling, missing abstractions |
+| 💡 **Recommendation** | Best practices, производительность, читаемость |
+
+### Severity уровни
+
+| Уровень | Описание |
+|---------|----------|
+| 🔴 **Critical** | Блокирует мёрдж |
+| 🟡 **Warning** | Требует внимания |
+| 🔵 **Info** | Рекомендации |
+
 ## Структура проекта
 
 ```
@@ -155,7 +272,8 @@ src/
 ├── index.ts              # Entry point
 ├── cli/
 │   ├── repl.ts           # REPL-режим
-│   └── oneshot.ts        # One-shot режим
+│   ├── oneshot.ts        # One-shot режим
+│   └── review.ts         # Code review CLI
 ├── config/
 │   └── index.ts          # Загрузка конфигурации
 ├── core/
@@ -195,8 +313,16 @@ src/
 │   ├── indexer.ts        # Индексация проекта
 │   ├── retriever.ts      # Поиск + rerank
 │   └── rerank-client.ts  # Rerank сервис
+├── review/               # Code review module
+│   ├── index.ts          # Entry point
+│   ├── types.ts          # Типы review
+│   ├── diff-fetcher.ts   # Получение diff
+│   ├── analyzer.ts       # LLM анализ
+│   └── formatter.ts      # Форматирование вывода
 └── commands/
     └── *.ts              # Команды CLI
+templates/
+└── pr-review-caller.yml  # Шаблон workflow для подключения к другим проектам
 ```
 
 ## Конфигурация (.env)

@@ -29,9 +29,7 @@ export async function startRepl(options: ReplOptions): Promise<void> {
   logger.resume();
 
   const context = orchestrator.getContext();
-  console.log(pc.gray('\nProject Info:'));
-  console.log(`  Path: ${context.projectPath}`);
-  console.log(`  Branch: ${context.gitBranch ?? 'unknown'}\n`);
+  console.log(pc.gray(`\nProject Info:\n  Path: ${context.projectPath}\n`));
 
   while (true) {
     const input = await logger.withPaused(async () => 

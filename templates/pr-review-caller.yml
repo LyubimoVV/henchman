@@ -1,0 +1,13 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  review:
+    uses: LyubimoVV/henchman/.github/workflows/pr-review.yml@main
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      head_sha: ${{ github.event.pull_request.head.sha }}
+    secrets: inherit

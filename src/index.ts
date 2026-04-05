@@ -2,8 +2,10 @@
 
 import { startRepl } from './cli/repl';
 import { runOneshot } from './cli/oneshot';
+import { runReviewCli, type ReviewCliOptions } from './cli/review';
 import { appConfig } from './config';
 import pc from 'picocolors';
+import type { OutputFormat } from './review/types';
 
 function printUsage(): void {
   console.log(`
@@ -12,11 +14,23 @@ ${pc.cyan('Henchman')} - AI Developer Assistant
 Usage:
   henchman [options]
   henchman <query> [options]
+  henchman review [options]
 
 Options:
   -p, --project <path>   Project directory (default: current directory)
   -d, --debug            Enable debug logging
   -h, --help             Show this help message
+
+Commands:
+  review                 Run AI code review on current changes
+
+Review Options:
+  --base <branch>        Base branch to compare (default: main)
+  --head <branch>        Head branch (default: HEAD)
+  --pr <number>          PR number to review (uses gh CLI)
+  --format <type>        Output format: cli | github (default: cli)
+  --output <file>        Write output to file
+  --no-rag               Disable RAG context gathering
 
 Commands (in REPL):
   /help [query]          Get help about the project
@@ -30,20 +44,30 @@ Examples:
   henchman -p /path/to/project                # Start REPL for specific project
   henchman "What is the project structure?"   # One-shot query
   henchman "Explain the API" -p ./myapp       # One-shot query for project
+  henchman review                             # Review local changes
+  henchman review --base develop              # Review against develop branch
+  henchman review --pr 123 --format github    # Review PR #123 with GitHub format
 `);
 }
 
-function parseArgs(): {
-  mode: 'help' | 'repl' | 'oneshot';
+type Mode = 'help' | 'repl' | 'oneshot' | 'review';
+
+interface ParsedArgs {
+  mode: Mode;
   projectPath: string;
   query: string;
   debug: boolean;
-} {
+  reviewOptions?: Partial<ReviewCliOptions>;
+}
+
+function parseArgs(): ParsedArgs {
   const args = process.argv.slice(2);
 
+  let mode: Mode = 'repl';
   let projectPath = process.cwd();
   let query = '';
   let debug = false;
+  const reviewOptions: Partial<ReviewCliOptions> = {};
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -66,19 +90,75 @@ function parseArgs(): {
         process.exit(1);
       }
       projectPath = nextArg;
+      reviewOptions.projectPath = projectPath;
       continue;
     }
 
-    if (!arg.startsWith('-')) {
+    if (arg === 'review') {
+      mode = 'review';
+      continue;
+    }
+
+    if (arg === '--base' && mode === 'review') {
+      const nextArg = args[++i];
+      if (nextArg) {
+        reviewOptions.baseRef = nextArg;
+      }
+      continue;
+    }
+
+    if (arg === '--head' && mode === 'review') {
+      const nextArg = args[++i];
+      if (nextArg) {
+        reviewOptions.headRef = nextArg;
+      }
+      continue;
+    }
+
+    if (arg === '--pr' && mode === 'review') {
+      const nextArg = args[++i];
+      if (nextArg) {
+        reviewOptions.prNumber = parseInt(nextArg, 10);
+      }
+      continue;
+    }
+
+    if (arg === '--format' && mode === 'review') {
+      const nextArg = args[++i];
+      if (nextArg && (nextArg === 'cli' || nextArg === 'github')) {
+        reviewOptions.format = nextArg as OutputFormat;
+      }
+      continue;
+    }
+
+    if (arg === '--output' && mode === 'review') {
+      const nextArg = args[++i];
+      if (nextArg) {
+        reviewOptions.output = nextArg;
+      }
+      continue;
+    }
+
+    if (arg === '--no-rag' && mode === 'review') {
+      reviewOptions.noRag = true;
+      continue;
+    }
+
+    if (!arg.startsWith('-') && mode !== 'review') {
       query = query ? `${query} ${arg}` : arg;
     }
   }
 
+  if (mode !== 'review' && query) {
+    mode = 'oneshot';
+  }
+
   return {
-    mode: query ? 'oneshot' : 'repl',
+    mode,
     projectPath,
     query,
     debug,
+    reviewOptions,
   };
 }
 
@@ -97,7 +177,15 @@ async function main(): Promise<void> {
   }
 
   try {
-    if (options.mode === 'oneshot') {
+    if (options.mode === 'review') {
+      await runReviewCli({
+        projectPath: options.projectPath,
+        format: 'cli',
+        noRag: false,
+        debug: options.debug,
+        ...options.reviewOptions,
+      });
+    } else if (options.mode === 'oneshot') {
       await runOneshot({
         projectPath: options.projectPath,
         query: options.query,

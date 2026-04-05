@@ -1,0 +1,191 @@
+name: AI Code Review
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: number
+      head_sha:
+        description: 'SHA of the PR head commit'
+        required: true
+        type: string
+      repository:
+        description: 'Repository to review (owner/repo)'
+        required: false
+        type: string
+        default: ''
+      use_rag:
+        description: 'Enable RAG context gathering'
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      DEEPSEEK_API_KEY:
+        description: 'DeepSeek API key'
+        required: true
+      DEEPSEEK_BASE_URL:
+        description: 'DeepSeek API base URL'
+        required: false
+      DEEPSEEK_MODEL:
+        description: 'DeepSeek model name'
+        required: false
+    outputs:
+      issues_count:
+        description: 'Number of issues found'
+        value: ${{ jobs.review.outputs.issues_count }}
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    outputs:
+      issues_count: ${{ steps.review.outputs.issues_count }}
+    
+    steps:
+      - name: Determine repository
+        id: repo
+        run: |
+          if [ -n "${{ inputs.repository }}" ]; then
+            REPO="${{ inputs.repository }}"
+          else
+            REPO="${{ github.repository }}"
+          fi
+          echo "repository=$REPO" >> $GITHUB_OUTPUT
+          echo "owner=$(echo $REPO | cut -d'/' -f1)" >> $GITHUB_OUTPUT
+          echo "name=$(echo $REPO | cut -d'/' -f2)" >> $GITHUB_OUTPUT
+
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.repo.outputs.repository }}
+          ref: ${{ inputs.head_sha }}
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Clone henchman
+        uses: actions/checkout@v4
+        with:
+          repository: LyubimoVV/henchman
+          ref: main
+          path: .henchman
+          fetch-depth: 1
+
+      - name: Install henchman dependencies
+        working-directory: .henchman
+        run: npm ci
+
+      - name: Cache RAG index
+        if: ${{ inputs.use_rag }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.henchman
+          key: rag-index-${{ steps.repo.outputs.repository }}-${{ hashFiles('**/*.ts', '**/*.js', '**/*.java', '**/*.py', '**/*.md') }}
+          restore-keys: |
+            rag-index-${{ steps.repo.outputs.repository }}-
+            rag-index-
+
+      - name: Install Ollama (for embeddings)
+        if: ${{ inputs.use_rag }}
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama pull nomic-embed-text &
+
+      - name: Wait for Ollama
+        if: ${{ inputs.use_rag }}
+        run: |
+          timeout 60 bash -c 'until curl -s http://localhost:11434/api/tags > /dev/null; do sleep 2; done'
+
+      - name: Run AI Code Review
+        id: review
+        working-directory: .henchman
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1' }}
+          DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL || 'deepseek-chat' }}
+          OLLAMA_BASE_URL: http://localhost:11434
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          RAG_FLAG=""
+          if [ "${{ inputs.use_rag }}" != "true" ]; then
+            RAG_FLAG="--no-rag"
+          fi
+          
+          npx tsx src/index.ts review \
+            --pr ${{ inputs.pr_number }} \
+            --format github \
+            --output review-output.md \
+            -p ../ \
+            $RAG_FLAG || true
+          
+          ISSUES=0
+          if [ -f ../.henchman-annotations.json ]; then
+            ISSUES=$(cat ../.henchman-annotations.json | jq 'length' || echo "0")
+          fi
+          echo "issues_count=$ISSUES" >> $GITHUB_OUTPUT
+
+      - name: Post Review Comment
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f .henchman-review-comment.md ]; then
+            gh api repos/${{ steps.repo.outputs.repository }}/pulls/${{ inputs.pr_number }}/reviews \
+              -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -f body="@.henchman-review-comment.md" \
+              -f event="COMMENT" \
+              -f commit_id="${{ inputs.head_sha }}" || \
+            gh pr comment ${{ inputs.pr_number }} \
+              --repo ${{ steps.repo.outputs.repository }} \
+              --body-file .henchman-review-comment.md || true
+          fi
+
+      - name: Create Check Run with Annotations
+        if: always() && hashFiles('.henchman-annotations.json') != ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          ANNOTATIONS=$(cat .henchman-annotations.json)
+          CRITICAL_COUNT=$(echo "$ANNOTATIONS" | jq '[.[] | select(.annotation_level == "failure")] | length')
+          WARNING_COUNT=$(echo "$ANNOTATIONS" | jq '[.[] | select(.annotation_level == "warning")] | length')
+          
+          if [ "$CRITICAL_COUNT" -gt 0 ]; then
+            CONCLUSION="failure"
+            TITLE="Found $CRITICAL_COUNT critical issues"
+          elif [ "$WARNING_COUNT" -gt 0 ]; then
+            CONCLUSION="neutral"
+            TITLE="Found $WARNING_COUNT warnings"
+          else
+            CONCLUSION="success"
+            TITLE="No issues found"
+          fi
+          
+          gh api \
+            repos/${{ steps.repo.outputs.repository }}/check-runs \
+            -f name="AI Code Review" \
+            -f head_sha="${{ inputs.head_sha }}" \
+            -f status="completed" \
+            -f conclusion="$CONCLUSION" \
+            -F output='{"title":"'"$TITLE"'","summary":"Review completed","annotations":'"$ANNOTATIONS"'}' || true
+
+      - name: Upload Review Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-output-${{ inputs.pr_number }}
+          path: |
+            review-output.md
+            .henchman-review-comment.md
+            .henchman-annotations.json
+          retention-days: 7
