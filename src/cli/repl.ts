@@ -1,7 +1,7 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { Orchestrator } from '../core/orchestrator';
-import { handleHelpCommand, handleToolsCommand, handleStatusCommand, handleExitCommand } from '../commands';
+import { handleHelpCommand, handleToolsCommand, handleStatusCommand, handleExitCommand, handleSupportCommand, handleTicketsCommand } from '../commands';
 import { handleIndexCommand } from '../commands/reindex';
 import { logger } from '../core/logger';
 
@@ -91,6 +91,24 @@ export async function startRepl(options: ReplOptions): Promise<void> {
           console.log('\n' + handleStatusCommand(orchestrator) + '\n');
           break;
 
+        case 'tickets':
+          const ticketsResult = await handleTicketsCommand();
+          console.log(ticketsResult + '\n');
+          break;
+
+        case 'support':
+          if (!argStr) {
+            console.log(pc.yellow('Usage: /support <ticket_id>'));
+            console.log(pc.gray('Example: /support TKT-001'));
+            console.log(pc.gray('Use /tickets to see available tickets'));
+          } else {
+            await handleSupportCommand(argStr, {
+              projectPath: options.projectPath,
+              debug: options.debug,
+            });
+          }
+          break;
+
         case 'exit':
         case 'quit':
         case 'q':
@@ -102,7 +120,7 @@ export async function startRepl(options: ReplOptions): Promise<void> {
           console.log(pc.gray('Type /help to see available commands'));
       }
 
-      console.log(pc.gray('\n  Commands: /help /index /tools /status /exit'));
+      console.log(pc.gray('\n  Commands: /help /index /tools /status /tickets /support /exit'));
       continue;
     }
 
@@ -113,7 +131,7 @@ export async function startRepl(options: ReplOptions): Promise<void> {
         console.log('\n' + pc.green('Response:') + '\n');
         console.log(response);
         console.log();
-        console.log(pc.gray('  Commands: /help /index /tools /status /exit'));
+        console.log(pc.gray('  Commands: /help /index /tools /status /tickets /support /exit'));
       } else {
         const response = await logger.withPaused(async () => {
           const responseSpinner = p.spinner();
@@ -126,11 +144,11 @@ export async function startRepl(options: ReplOptions): Promise<void> {
         console.log('\n' + pc.green('Response:') + '\n');
         console.log(response);
         console.log();
-        console.log(pc.gray('  Commands: /help /index /tools /status /exit'));
+        console.log(pc.gray('  Commands: /help /index /tools /status /tickets /support /exit'));
       }
     } catch (error) {
       console.log(pc.red(`Error: ${(error as Error).message}`));
-      console.log(pc.gray('\n  Commands: /help /index /tools /status /exit'));
+      console.log(pc.gray('\n  Commands: /help /index /tools /status /tickets /support /exit'));
     }
   }
 }

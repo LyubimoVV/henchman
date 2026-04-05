@@ -1,0 +1,59 @@
+{
+  "users": [
+    {
+      "id": "usr_001",
+      "email": "ivan.petrov@company.ru",
+      "name": "Иван Петров",
+      "plan": "free",
+      "registeredAt": "2024-01-15T10:00:00Z",
+      "metadata": {
+        "company": "ООО Старт",
+        "experience": "junior"
+      }
+    },
+    {
+      "id": "usr_002",
+      "email": "maria.sidorova@tech.com",
+      "name": "Мария Сидорова",
+      "plan": "pro",
+      "registeredAt": "2023-08-20T14:30:00Z",
+      "metadata": {
+        "company": "Tech Solutions",
+        "experience": "senior"
+      }
+    },
+    {
+      "id": "usr_003",
+      "email": "alex.kozlov@gmail.com",
+      "name": "Алексей Козлов",
+      "plan": "free",
+      "registeredAt": "2024-02-01T09:00:00Z",
+      "metadata": {
+        "company": null,
+        "experience": "middle"
+      }
+    },
+    {
+      "id": "usr_004",
+      "email": "elena.novikova@enterprise.com",
+      "name": "Елена Новикова",
+      "plan": "enterprise",
+      "registeredAt": "2023-05-10T11:15:00Z",
+      "metadata": {
+        "company": "Enterprise Corp",
+        "experience": "senior"
+      }
+    },
+    {
+      "id": "usr_005",
+      "email": "dmitry.volkov@startup.io",
+      "name": "Дмитрий Волков",
+      "plan": "pro",
+      "registeredAt": "2024-01-28T16:45:00Z",
+      "metadata": {
+        "company": "StartupIO",
+        "experience": "middle"
+      }
+    }
+  ]
+}

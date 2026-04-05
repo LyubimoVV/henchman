@@ -47,16 +47,17 @@ function schemaToJsonSchema(schema: JSONSchema): Record<string, unknown> {
 }
 
 export function createSimpleToolSchema(
-  properties: Record<string, { type: string; description: string }>,
+  properties: Record<string, { type: string; description: string; enum?: string[] }>,
   required: string[] = []
 ): JSONSchema {
   return {
     type: 'object',
     properties: Object.fromEntries(
-      Object.entries(properties).map(([key, value]) => [
-        key,
-        { type: value.type, description: value.description },
-      ])
+      Object.entries(properties).map(([key, value]) => {
+        const prop: JSONSchema = { type: value.type, description: value.description };
+        if (value.enum) prop.enum = value.enum;
+        return [key, prop];
+      })
     ),
     required,
   };

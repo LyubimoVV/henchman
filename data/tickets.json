@@ -1,0 +1,264 @@
+{
+  "tickets": [
+    {
+      "id": "TKT-001",
+      "userId": "usr_001",
+      "subject": "Не работает авторизация через DeepSeek API",
+      "status": "open",
+      "priority": "high",
+      "category": "auth",
+      "createdAt": "2024-03-20T10:00:00Z",
+      "messages": [
+        {
+          "from": "user",
+          "text": "Добрый день! Не могу войти в систему. Получаю ошибку 'Invalid API key', хотя ключ точно правильный. Пробовал перегенерировать ключ - не помогло. Работаю через веб-интерфейс на Chrome.",
+          "timestamp": "2024-03-20T10:00:00Z"
+        },
+        {
+          "from": "support",
+          "text": "Здравствуйте! Проверьте, пожалуйста: 1) Ключ начинается с 'sk-'? 2) После setx перезапускали терминал? 3) Нет ли пробелов в начале/конце ключа?",
+          "timestamp": "2024-03-20T10:15:00Z"
+        },
+        {
+          "from": "user",
+          "text": "Да, ключ начинается с sk-, терминал перезапускал. Проверил на пробелы - всё чисто. Может быть проблема в том, что я на Windows?",
+          "timestamp": "2024-03-20T10:30:00Z"
+        }
+      ],
+      "metadata": {
+        "browser": "Chrome 122.0",
+        "os": "Windows 11",
+        "model": "deepseek-chat",
+        "contextStrategy": "none"
+      }
+    },
+    {
+      "id": "TKT-002",
+      "userId": "usr_003",
+      "subject": "Ollama не подключается к приложению",
+      "status": "open",
+      "priority": "medium",
+      "category": "integration",
+      "createdAt": "2024-03-21T14:00:00Z",
+      "messages": [
+        {
+          "from": "user",
+          "text": "Установил Ollama, скачал llama3.1:8b. Сервис запущен (ollama serve работает). Но в веб-интерфейсе в списке моделей Ollama не появляется. Что делать?",
+          "timestamp": "2024-03-21T14:00:00Z"
+        }
+      ],
+      "metadata": {
+        "browser": "Firefox 123.0",
+        "os": "Ubuntu 22.04",
+        "ollamaVersion": "0.1.27",
+        "model": "llama3.1:8b"
+      }
+    },
+    {
+      "id": "TKT-003",
+      "userId": "usr_002",
+      "subject": "RAG с реранкингом выдаёт пустые результаты",
+      "status": "open",
+      "priority": "high",
+      "category": "rag",
+      "createdAt": "2024-03-22T09:30:00Z",
+      "messages": [
+        {
+          "from": "user",
+          "text": "Настроила RAG, py_rerank_service запущен на порту 8000. /health возвращает OK. Но при поиске получаю пустой массив результатов. В логах Java приложения вижу ошибки подключения к reranker. Переменная RERANKER_SERVICE_URL установлена.",
+          "timestamp": "2024-03-22T09:30:00Z"
+        }
+      ],
+      "metadata": {
+        "browser": "Chrome 122.0",
+        "os": "macOS Sonoma 14.3",
+        "rerankerPort": "8000",
+        "contextStrategy": "compression"
+      }
+    },
+    {
+      "id": "TKT-004",
+      "userId": "usr_005",
+      "subject": "Как переключиться между ветками диалога?",
+      "status": "open",
+      "priority": "low",
+      "category": "feature",
+      "createdAt": "2024-03-23T11:00:00Z",
+      "messages": [
+        {
+          "from": "user",
+          "text": "В документации прочитал про Branching - ветки диалога. Не могу найти в интерфейсе, как создать новую ветку. Есть кнопка или это через API только?",
+          "timestamp": "2024-03-23T11:00:00Z"
+        }
+      ],
+      "metadata": {
+        "browser": "Chrome 122.0",
+        "os": "Windows 10",
+        "model": "deepseek-reasoner",
+        "contextStrategy": "branching"
+      }
+    },
+    {
+      "id": "TKT-005",
+      "userId": "usr_004",
+      "subject": "Проблема со Sticky Facts - факты не сохраняются",
+      "status": "open",
+      "priority": "medium",
+      "category": "memory",
+      "createdAt": "2024-03-24T15:45:00Z",
+      "messages": [
+        {
+          "from": "user",
+          "text": "Используем стратегию Sticky Facts для хранения важной информации. Но факты не появляются автоматически из сообщений. Нужно ли что-то дополнительно настроить? Или факты только вручную добавлять? Хотелось бы автоматического извлечения через AI.",
+          "timestamp": "2024-03-24T15:45:00Z"
+        },
+        {
+          "from": "support",
+          "text": "Автоматическое извлечение фактов работает. Убедитесь: 1) Выбрана стратегия 'Sticky Facts' в настройках 2) В системном промпте есть инструкции для AI извлекать факты 3) Проверьте API /api/memory/working - там должны появляться факты",
+          "timestamp": "2024-03-24T16:00:00Z"
+        },
+        {
+          "from": "user",
+          "text": "Проверила - стратегия выбрана. В API /api/memory/working пусто. Может логи посмотреть? Где они находятся?",
+          "timestamp": "2024-03-24T16:15:00Z"
+        }
+      ],
+      "metadata": {
+        "browser": "Edge 122.0",
+        "os": "Windows 11",
+        "model": "deepseek-chat",
+        "contextStrategy": "sticky_facts"
+      }
+    },
+    {
+      "id": "TKT-006",
+      "userId": "usr_001",
+      "subject": "Timeout при работе с Ollama",
+      "status": "open",
+      "priority": "high",
+      "category": "performance",
+      "createdAt": "2024-03-25T08:20:00Z",
+      "messages": [
+        {
+          "from": "user",
+          "text": "При запросах к Ollama (phi3:3.8b) постоянно получаю timeout через 60 секунд. Модель отвечает медленно, но отвечает. Можно ли увеличить таймаут? В документации указано 120 секунд для Ollama, но у меня обрывается на 60.",
+          "timestamp": "2024-03-25T08:20:00Z"
+        }
+      ],
+      "metadata": {
+        "browser": "Chrome 122.0",
+        "os": "Windows 11",
+        "ollamaModel": "phi3:3.8b",
+        "hardware": "RTX 3060, 12GB VRAM"
+      }
+    },
+    {
+      "id": "TKT-007",
+      "userId": "usr_003",
+      "subject": "MCP серверы не подключаются",
+      "status": "open",
+      "priority": "medium",
+      "category": "mcp",
+      "createdAt": "2024-03-26T13:00:00Z",
+      "messages": [
+        {
+          "from": "user",
+          "text": "Хочу подключить MCP сервер. Добавил конфигурацию в mcp.json. При вызове POST /api/mcp/servers/{name}/connect получаю ошибку 'Connection failed'. MCP сервер работает (проверял отдельно). Есть ли ограничения на MCP серверы?",
+          "timestamp": "2024-03-26T13:00:00Z"
+        }
+      ],
+      "metadata": {
+        "browser": "Firefox 123.0",
+        "os": "Ubuntu 22.04",
+        "mcpServerType": "stdio"
+      }
+    },
+    {
+      "id": "TKT-008",
+      "userId": "usr_002",
+      "subject": "Система задач не запускает автосгенерированный план",
+      "status": "open",
+      "priority": "medium",
+      "category": "tasks",
+      "createdAt": "2024-03-27T10:30:00Z",
+      "messages": [
+        {
+          "from": "user",
+          "text": "Использую систему задач для автоматизации. AI сгенерировал план задачи, но при попытке запустить выполнение получаю ошибку валидации. В логах вижу TaskStateMachine переходит в состояние error. Как исправить?",
+          "timestamp": "2024-03-27T10:30:00Z"
+        },
+        {
+          "from": "support",
+          "text": "Покажите, пожалуйста, структуру задачи (POST body) и текст ошибки из логов. Файлы логов находятся в ./logs/ директории.",
+          "timestamp": "2024-03-27T10:45:00Z"
+        },
+        {
+          "from": "user",
+          "text": "Отправляю: {\"description\": \"Проанализировать код\", \"autoPlan\": true}. Ошибка: 'Invalid state transition: PLANNING -> EXECUTING requires validated plan'",
+          "timestamp": "2024-03-27T11:00:00Z"
+        }
+      ],
+      "metadata": {
+        "browser": "Chrome 122.0",
+        "os": "macOS Sonoma 14.3",
+        "model": "deepseek-reasoner",
+        "taskFeature": "auto_plan"
+      }
+    },
+    {
+      "id": "TKT-009",
+      "userId": "usr_005",
+      "subject": "Compression стратегия теряет контекст",
+      "status": "open",
+      "priority": "medium",
+      "category": "context",
+      "createdAt": "2024-03-28T16:00:00Z",
+      "messages": [
+        {
+          "from": "user",
+          "text": "После суммаризации (Compression) теряется важная информация из начала диалога. Summary создаётся, но оно слишком краткое. Можно ли настроить детализацию summary? Параметры compressionKeepMessages=10, compressionSummaryInterval=5.",
+          "timestamp": "2024-03-28T16:00:00Z"
+        }
+      ],
+      "metadata": {
+        "browser": "Chrome 122.0",
+        "os": "Windows 10",
+        "contextStrategy": "compression",
+        "compressionKeepMessages": "10",
+        "compressionSummaryInterval": "5"
+      }
+    },
+    {
+      "id": "TKT-010",
+      "userId": "usr_004",
+      "subject": "Sliding Window - можно ли динамически менять размер?",
+      "status": "closed",
+      "priority": "low",
+      "category": "feature",
+      "createdAt": "2024-03-15T09:00:00Z",
+      "resolvedAt": "2024-03-16T14:00:00Z",
+      "messages": [
+        {
+          "from": "user",
+          "text": "Хочу менять размер скользящего окна (slidingWindowSize) в зависимости от модели. Для deepseek-reasoner нужно больше контекста, для deepseek-chat меньше. Возможно ли это?",
+          "timestamp": "2024-03-15T09:00:00Z"
+        },
+        {
+          "from": "support",
+          "text": "Да, можно менять slidingWindowSize через API или настройки в любой момент. Изменения применяются к следующим сообщениям. Текущие сообщения в сессии не пересчитываются.",
+          "timestamp": "2024-03-15T10:00:00Z"
+        },
+        {
+          "from": "user",
+          "text": "Отлично, работает! Спасибо.",
+          "timestamp": "2024-03-16T14:00:00Z"
+        }
+      ],
+      "metadata": {
+        "browser": "Edge 122.0",
+        "os": "Windows 11",
+        "contextStrategy": "sliding_window"
+      }
+    }
+  ]
+}

@@ -146,7 +146,72 @@ tsx src/index.ts "Что делает этот проект?" -p /path/to/projec
 | `/index` | Переиндексация проекта |
 | `/tools` | Список доступных инструментов |
 | `/status` | Текущее состояние |
+| `/tickets` | Список тикетов поддержки |
+| `/support <ticket_id>` | Сессия поддержки по тикету |
 | `/exit` | Выход |
+
+## AI Support Assistant
+
+AI-ассистент для технической поддержки пользователей с RAG и контекстом тикетов.
+
+### Возможности
+
+- **RAG поиск** по документации продукта
+- **Контекст тикета**: категория, приоритет, история переписки
+- **Контекст пользователя**: план, опыт, компания
+- **Персонализация ответов** по уровню опыта (junior/middle/senior)
+
+### Использование
+
+```bash
+# Запуск REPL
+npm run dev
+
+# Список тикетов
+/tickets
+
+# Начать сессию поддержки
+/support TKT-001
+```
+
+### Пример сессии
+
+```
+> /support TKT-001
+
+════════════════════════════════════════════════════════════
+📋 Support Session
+════════════════════════════════════════════════════════════
+Ticket: TKT-001 - Не работает авторизация через DeepSeek API
+Status: open | Priority: high
+User: Иван Петров (ivan.petrov@company.ru)
+Plan: free
+════════════════════════════════════════════════════════════
+
+> Почему не работает авторизация?
+
+Answer:
+Основываясь на вашем тикете TKT-001, проблема с авторизацией 
+через DeepSeek API может быть вызвана несколькими причинами...
+
+> /done
+
+✓ Support session closed
+```
+
+### Данные
+
+Тикеты и пользователи хранятся в JSON файлах:
+- `data/users.json` — профили пользователей
+- `data/tickets.json` — тикеты поддержки
+
+### MCP Tools
+
+| Tool | Описание |
+|------|----------|
+| `get_ticket` | Получить тикет по ID с информацией о пользователе |
+| `get_user` | Получить профиль пользователя |
+| `list_tickets` | Список тикетов с фильтрами |
 
 ## AI Code Review
 
@@ -305,6 +370,10 @@ src/
 │   │   ├── find-files.ts
 │   │   └── delegate.ts   # Tool для делегирования
 │   ├── mcp/              # MCP tools
+│   │   ├── git-*.ts      # Git tools
+│   │   ├── get-ticket.ts # Support ticket tool
+│   │   ├── get-user.ts   # Support user tool
+│   │   └── list-tickets.ts
 │   └── rag/              # RAG tools
 ├── rag/
 │   ├── embedder.ts       # Ollama embeddings
@@ -313,6 +382,12 @@ src/
 │   ├── indexer.ts        # Индексация проекта
 │   ├── retriever.ts      # Поиск + rerank
 │   └── rerank-client.ts  # Rerank сервис
+├── support/              # Support assistant module
+│   ├── index.ts          # Entry point
+│   ├── types.ts          # User, Ticket types
+│   ├── data-store.ts     # JSON data loader
+│   ├── support-agent.ts  # Agent with RAG
+│   └── prompts.ts        # System prompts
 ├── review/               # Code review module
 │   ├── index.ts          # Entry point
 │   ├── types.ts          # Типы review
@@ -321,6 +396,9 @@ src/
 │   └── formatter.ts      # Форматирование вывода
 └── commands/
     └── *.ts              # Команды CLI
+data/
+├── users.json            # Пользователи поддержки
+└── tickets.json          # Тикеты поддержки
 templates/
 └── pr-review-caller.yml  # Шаблон workflow для подключения к другим проектам
 ```
