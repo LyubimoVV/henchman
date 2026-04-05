@@ -153,21 +153,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          if [ -f ../.henchman-review-comment.md ]; then
+          if [ -f .henchman-review-comment.md ]; then
             echo "Posting review comment..."
             gh pr comment ${{ inputs.pr_number }} \
               --repo ${{ steps.repo.outputs.repository }} \
-              --body-file ../.henchman-review-comment.md || true
+              --body-file .henchman-review-comment.md || true
             echo "Review comment posted successfully"
           else
             echo "No review comment file found"
           fi
       - name: Create Check Run with Annotations
-        if: always() && hashFiles('../.henchman-annotations.json') != ''
+        if: always() && hashFiles('.henchman-annotations.json') != ''
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          ANNOTATIONS_FILE=../.henchman-annotations.json
+          ANNOTATIONS_FILE=.henchman-annotations.json
           
           if [ ! -f "$ANNOTATIONS_FILE" ]; then
             echo "No annotations file found"
