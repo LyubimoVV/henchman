@@ -41,6 +41,9 @@ permissions:
   pull-requests: write
   checks: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   review:
     runs-on: ubuntu-latest
@@ -108,7 +111,6 @@ jobs:
 
       - name: Run AI Code Review
         id: review
-        working-directory: .henchman
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1' }}
@@ -121,16 +123,16 @@ jobs:
             RAG_FLAG="--no-rag"
           fi
           
-          npx tsx src/index.ts review \
+          npx tsx .henchman/src/index.ts review \
             --pr ${{ inputs.pr_number }} \
             --format github \
             --output review-output.md \
-            -p ../ \
+            -p . \
             $RAG_FLAG || true
           
           ISSUES=0
-          if [ -f ../.henchman-annotations.json ]; then
-            ISSUES=$(cat ../.henchman-annotations.json | jq 'length' || echo "0")
+          if [ -f .henchman-annotations.json ]; then
+            ISSUES=$(cat .henchman-annotations.json | jq 'length' || echo "0")
           fi
           echo "issues_count=$ISSUES" >> $GITHUB_OUTPUT
 
@@ -189,3 +191,4 @@ jobs:
             .henchman-review-comment.md
             .henchman-annotations.json
           retention-days: 7
+          if-no-files-found: ignore
