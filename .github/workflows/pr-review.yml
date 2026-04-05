@@ -110,8 +110,6 @@ jobs:
           ollama serve &
           sleep 5
 
-        run: echo "Installing Ollama..."
-
       - name: Wait for Ollama and pull model
         if: ${{ inputs.use_rag }}
         run: |
