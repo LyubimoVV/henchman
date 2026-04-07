@@ -40,6 +40,7 @@ export class DelegationManager {
   }
 
   async executeWithPlan(goal: string): Promise<AggregatedResult> {
+    this.exitController.reset();
     const startTime = Date.now();
     logger.info('delegation', 'Starting planned execution', { goal: goal.substring(0, 100) });
 

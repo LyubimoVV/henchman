@@ -26,7 +26,8 @@ export class ToolExecutor {
   async execute(
     toolName: string,
     args: Record<string, unknown>,
-    maxRetries: number = 3
+    maxRetries: number = 3,
+    signal?: AbortSignal,
   ): Promise<ToolResult> {
     let tool = toolRegistry.getByName(toolName);
 
@@ -47,6 +48,13 @@ export class ToolExecutor {
 
     let attempt = 0;
     while (attempt < maxRetries) {
+      if (signal?.aborted) {
+        return {
+          success: false,
+          result: null,
+          error: 'Execution aborted',
+        };
+      }
       attempt++;
 
       try {

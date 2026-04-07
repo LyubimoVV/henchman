@@ -3,6 +3,7 @@ import pc from 'picocolors';
 import { Orchestrator } from '../core/orchestrator';
 import { handleHelpCommand, handleToolsCommand, handleStatusCommand, handleExitCommand, handleSupportCommand, handleTicketsCommand } from '../commands';
 import { handleIndexCommand } from '../commands/reindex';
+import { agentRegistry } from '../core/agent/registry';
 import { logger } from '../core/logger';
 
 export interface ReplOptions {
@@ -23,18 +24,34 @@ export async function startRepl(options: ReplOptions): Promise<void> {
   const orchestrator = new Orchestrator({
     projectPath: options.projectPath,
     autoIndex: true,
+    onContent: (chunk) => {
+      process.stdout.write(chunk);
+    },
+    onPermissionAsk: async (toolName, _args) => {
+      logger.resume();
+      const answer = await p.confirm({
+        message: `Allow tool "${toolName}" to execute?`,
+        initialValue: true,
+      });
+      logger.pause();
+      return !p.isCancel(answer) && answer === true;
+    },
   });
 
   s.stop('Project initialized');
   logger.resume();
 
   const context = orchestrator.getContext();
-  console.log(pc.gray(`\nProject Info:\n  Path: ${context.projectPath}\n`));
+  console.log(pc.gray(`\nProject Info:\n  Path: ${context.projectPath}`));
+  console.log(pc.gray(`  Agent: ${orchestrator.getCurrentAgent().name}`));
+  console.log(pc.gray('  Switch agents: /agent build | /agent plan'));
+  console.log(pc.gray('  Stop execution: /stop\n'));
 
   while (true) {
+    const agentName = orchestrator.getCurrentAgent().name;
     const input = await logger.withPaused(async () => 
       p.text({
-        message: 'Ask a question',
+        message: `[${agentName}] Ask a question`,
         placeholder: 'Type /help for commands or ask about the project...',
       })
     );
@@ -109,6 +126,55 @@ export async function startRepl(options: ReplOptions): Promise<void> {
           }
           break;
 
+        case 'agent':
+          if (!argStr) {
+            const agents = agentRegistry.primaryAgents();
+            console.log(pc.cyan('\nAvailable agents:'));
+            for (const a of agents) {
+              const current = a.name === orchestrator.getCurrentAgent().name ? ' (current)' : '';
+              console.log(`  ${pc.bold(a.name)}${pc.gray(current)} - ${a.description}`);
+            }
+            console.log(pc.gray('\nUsage: /agent <name>'));
+          } else {
+            const switched = orchestrator.switchAgent(argStr);
+            if (switched) {
+              console.log(pc.green(`Switched to agent: ${argStr}`));
+            } else {
+              console.log(pc.red(`Unknown agent: ${argStr}`));
+              console.log(pc.gray(`Available: ${agentRegistry.primaryAgents().map(a => a.name).join(', ')}`));
+            }
+          }
+          break;
+
+        case 'stop':
+          orchestrator.cancel();
+          console.log(pc.yellow('Execution cancelled'));
+          break;
+
+        case 'plan':
+          if (!argStr) {
+            console.log(pc.yellow('Usage: /plan <goal>'));
+            console.log(pc.gray('Example: /plan Analyze authentication flow'));
+          } else {
+            if (options.debug) {
+              console.log(pc.cyan('\nPlanning...'));
+              const response = await orchestrator.handleMessageWithPlan(argStr);
+              console.log('\n' + pc.green('Result:') + '\n');
+              console.log(response);
+            } else {
+              const response = await logger.withPaused(async () => {
+                const planSpinner = p.spinner();
+                planSpinner.start('Planning...');
+                const result = await orchestrator.handleMessageWithPlan(argStr);
+                planSpinner.stop();
+                return result;
+              });
+              console.log('\n' + pc.green('Result:') + '\n');
+              console.log(response);
+            }
+          }
+          break;
+
         case 'exit':
         case 'quit':
         case 'q':
@@ -120,35 +186,22 @@ export async function startRepl(options: ReplOptions): Promise<void> {
           console.log(pc.gray('Type /help to see available commands'));
       }
 
-      console.log(pc.gray('\n  Commands: /help /index /tools /status /tickets /support /exit'));
+      console.log(pc.gray('\n  Commands: /help /index /tools /status /agent /stop /plan /exit'));
       continue;
     }
 
     try {
-      if (options.debug) {
-        console.log(pc.cyan('\nThinking...'));
-        const response = await orchestrator.handleMessage(message);
-        console.log('\n' + pc.green('Response:') + '\n');
-        console.log(response);
-        console.log();
-        console.log(pc.gray('  Commands: /help /index /tools /status /tickets /support /exit'));
-      } else {
-        const response = await logger.withPaused(async () => {
-          const responseSpinner = p.spinner();
-          responseSpinner.start('Thinking...');
-          const result = await orchestrator.handleMessage(message);
-          responseSpinner.stop();
-          return result;
-        });
-        
-        console.log('\n' + pc.green('Response:') + '\n');
-        console.log(response);
-        console.log();
-        console.log(pc.gray('  Commands: /help /index /tools /status /tickets /support /exit'));
-      }
+      process.stdout.write(pc.cyan('\nThinking... '));
+      const response = await orchestrator.handleMessage(message);
+      process.stdout.write('\r' + ' '.repeat(20) + '\r');
+      console.log(pc.green('Response:'));
+      console.log(response);
+      console.log();
+      console.log(pc.gray('  Commands: /help /index /tools /status /agent /stop /plan /exit'));
     } catch (error) {
+      process.stdout.write('\r' + ' '.repeat(20) + '\r');
       console.log(pc.red(`Error: ${(error as Error).message}`));
-      console.log(pc.gray('\n  Commands: /help /index /tools /status /tickets /support /exit'));
+      console.log(pc.gray('\n  Commands: /help /index /tools /status /agent /stop /plan /exit'));
     }
   }
 }

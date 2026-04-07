@@ -5,6 +5,7 @@ export { findFilesTool } from './find-files';
 export { contentSearchTool } from './content-search';
 export { globSearchTool } from './glob-search';
 export { createDelegateTool } from './delegate';
+export { createQuestionTool } from './question';
 
 import { bashTool } from './bash';
 import { fileReadTool } from './file-read';

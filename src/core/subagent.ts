@@ -5,6 +5,7 @@ import type {
   ChatMessage,
   ToolDefinition,
 } from './types';
+import type { AgentInfo } from './agent/types';
 import { toolUseLoop } from './tool-use-loop';
 import { logger } from './logger';
 
@@ -12,17 +13,24 @@ function generateId(): string {
   return `subagent_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 }
 
+export interface SubagentOptions {
+  agent?: AgentInfo;
+  signal?: AbortSignal;
+}
+
 export class Subagent {
   private task: SubagentTask;
   private logs: string[];
   private foundFiles: Set<string>;
   private searchCache: Map<string, unknown>;
+  private options: SubagentOptions;
 
-  constructor(task: SubagentTask) {
+  constructor(task: SubagentTask, options: SubagentOptions = {}) {
     this.task = task;
     this.logs = [];
     this.foundFiles = new Set();
     this.searchCache = new Map();
+    this.options = options;
   }
 
   async execute(): Promise<SubagentResult> {
@@ -45,8 +53,10 @@ export class Subagent {
       ];
 
       const result = await toolUseLoop(messages, {
-        maxIterations: 15,
+        maxIterations: this.options.agent?.maxIterations ?? 10,
         tools: this.task.tools,
+        agent: this.options.agent,
+        signal: this.options.signal,
         onToolCall: (name, args) => {
           this.logs.push(`Tool call: ${name}(${JSON.stringify(args)})`);
         },
@@ -223,7 +233,8 @@ export class Subagent {
 export function createSubagent(
   description: string,
   tools: ToolDefinition[],
-  context: SubagentContext
+  context: SubagentContext,
+  options: SubagentOptions = {},
 ): Subagent {
   const task: SubagentTask = {
     id: generateId(),
@@ -232,5 +243,5 @@ export function createSubagent(
     contextIn: context,
   };
 
-  return new Subagent(task);
+  return new Subagent(task, options);
 }

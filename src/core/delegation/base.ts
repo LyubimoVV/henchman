@@ -1,5 +1,8 @@
 import type { SubagentContext, ToolDefinition } from '../types';
 import type { DelegationTask, DelegationResult, DelegationExecutorOptions } from './types';
+import type { AgentInfo } from '../agent/types';
+import { agentRegistry } from '../agent/registry';
+import { isToolAllowed } from '../permission';
 import { createSubagent } from '../subagent';
 import { logger } from '../logger';
 
@@ -28,12 +31,18 @@ const DEFAULT_SUBAGENT_TOOLS = ['rag_search', 'content_search'];
 
 export abstract class DelegationExecutor {
   protected options: DelegationExecutorOptions;
+  protected subagentType: string;
 
-  constructor(options: DelegationExecutorOptions) {
+  constructor(options: DelegationExecutorOptions, subagentType: string = 'general') {
     this.options = options;
+    this.subagentType = subagentType;
   }
 
   abstract execute(config: unknown): Promise<DelegationResult[] | DelegationResult>;
+
+  protected getAgentInfo(): AgentInfo {
+    return agentRegistry.get(this.subagentType) ?? agentRegistry.get('general')!;
+  }
 
   protected createSubagentContext(task: DelegationTask): SubagentContext {
     const baseContext: SubagentContext = {
@@ -58,6 +67,7 @@ export abstract class DelegationExecutor {
   }
 
   protected resolveTools(toolNames: string[]): ToolDefinition[] {
+    const agent = this.getAgentInfo();
     const tools: ToolDefinition[] = [];
     const notFound: string[] = [];
     const allToolNames = [...new Set([...DEFAULT_SUBAGENT_TOOLS, ...toolNames])];
@@ -67,6 +77,11 @@ export abstract class DelegationExecutor {
       
       if (BLOCKED_TOOLS.includes(resolvedName) || BLOCKED_TOOLS.includes(name)) {
         logger.warn('subagent', `Subagent task attempted to use blocked tool "${name}" - ignoring`);
+        continue;
+      }
+
+      if (!isToolAllowed(agent, resolvedName)) {
+        logger.warn('subagent', `Tool "${name}" denied by agent "${agent.name}" permissions`);
         continue;
       }
       
@@ -101,7 +116,8 @@ export abstract class DelegationExecutor {
   protected async executeTask(task: DelegationTask): Promise<DelegationResult> {
     const tools = this.resolveTools(task.tools);
     const context = this.createSubagentContext(task);
-    const subagent = createSubagent(task.description, tools, context);
+    const agent = this.getAgentInfo();
+    const subagent = createSubagent(task.description, tools, context, { agent });
 
     try {
       const result = await subagent.execute();
