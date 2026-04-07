@@ -8,7 +8,10 @@ export function createReadFileTool(projectPath: string): ToolDefinition {
     name: 'read_file',
     category: 'mcp',
     description:
-      'Read the contents of a file from the project. Path is relative to project root.',
+      'Read the contents of a file from the project. ' +
+      'IMPORTANT: Use ONLY after you have identified the EXACT file path from search results (glob_search, content_search, rag_search). ' +
+      'DO NOT guess file paths - always search first. ' +
+      'Path is relative to project root.',
     parameters: createSimpleToolSchema(
       {
         path: {

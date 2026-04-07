@@ -17,6 +17,10 @@ export interface SubagentContext extends BaseContext {
   taskDescription: string;
   parentAgentId: string;
   allowedTools: string[];
+  sharedContext?: {
+    foundFiles: string[];
+    searchCache: Record<string, unknown>;
+  };
 }
 
 export interface SubagentInfo {

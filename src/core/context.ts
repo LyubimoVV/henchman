@@ -3,8 +3,9 @@ import type {
   ChatMessage,
   SubagentInfo,
   RetrievedChunk,
-  BaseContext,
+  BaseContext
 } from './types';
+import { buildMainAgentPrompt } from './prompts/main-agent';
 
 export function createConversationContext(projectPath: string): ConversationContext {
   return {
@@ -105,48 +106,31 @@ export function addModifiedFile(
   };
 }
 
-export function buildSystemPrompt(context: ConversationContext): string {
-  const parts: string[] = [
-    'You are Henchman, an AI developer assistant with access to project context and tools.',
-    '',
-    '## Project Context',
-    `- Project Path: ${context.projectPath}`,
-    context.gitBranch ? `- Current Git Branch: ${context.gitBranch}` : '',
-    context.indexedFiles.length > 0
-      ? `- Indexed Files: ${context.indexedFiles.length} files`
-      : '',
-  ];
+export function buildSystemPrompt(context: ConversationContext, availableTools: string[] = []): string {
+  const config = {
+    projectPath: context.projectPath,
+    gitBranch: context.gitBranch,
+    indexedFiles: context.indexedFiles,
+    availableTools,
+  };
 
+  let prompt = buildMainAgentPrompt(config);
+
+  // Добавить retrievedChunks если есть
   if (context.retrievedChunks && context.retrievedChunks.length > 0) {
-    parts.push('', '## Relevant Context from Documentation');
+    const chunksSection = [
+      '',
+      '## Relevant Context from Documentation',
+    ];
+    
     for (const chunk of context.retrievedChunks.slice(0, 5)) {
-      parts.push(`### ${chunk.filePath}`, chunk.content, '');
+      chunksSection.push(`### ${chunk.filePath}`, chunk.content, '');
     }
+    
+    prompt += '\n' + chunksSection.join('\n');
   }
 
-  parts.push(
-    '',
-    '## Instructions',
-    '- You are a coordinator with access to tools and delegation capabilities.',
-    '- For simple operations (read file, list files, git), use direct tools.',
-    '- For complex multi-step tasks requiring coordination, use the delegate tool.',
-    '',
-    '## Delegation Patterns (for complex tasks only)',
-    '- fan-out: Execute multiple independent tasks in parallel',
-    '- chain: Execute tasks sequentially, passing results forward',
-    '- router: Route input to appropriate task based on content',
-    '',
-    '## Important Restrictions',
-    '- Subagents work in isolation and cannot use the delegate tool.',
-    '- Do NOT nest delegations - use direct tools in task definitions.',
-    '',
-    '## Response Guidelines',
-    '- Use appropriate tools for the task complexity.',
-    '- Provide concise, accurate responses based on tool results.',
-    '- If a tool fails, report the error clearly.'
-  );
-
-  return parts.filter(Boolean).join('\n');
+  return prompt;
 }
 
 export function mergeSubagentContext(

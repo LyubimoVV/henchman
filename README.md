@@ -107,6 +107,89 @@ Delegate tool позволяет orchestrator'у создавать субаге
 - В `tasks.tools` указывайте только прямые инструменты (без delegate)
 - Субагенты не могут вкладывать делегирования (защита от рекурсии)
 
+## DAG-планирование делегирования
+
+### Архитектура
+
+Новая система делегирования использует комбинацию DAG-планирования + Resource Reservation + Strict Exit Criteria:
+
+```
+User Request
+     ↓
+[TaskPlanner] Декомпозиция цели в SubTask[] с DAG-зависимостями
+     ↓
+[FileResourceManager] Резервирование путей, кэш, блокировки
+     ↓
+[AgentDispatcher] Fan-out задач с проверкой scope boundaries
+     ↓
+[VerificationGate] Проверка coverage(scope) и статусов
+     ↓
+[ExitController] maxDepth, maxRetries, timeout, earlyExit
+     ↓
+Aggregated Result
+```
+
+### Компоненты
+
+| Компонент | Назначение |
+|-----------|------------|
+| **TaskPlanner** | Декомпозиция цели в SubTask[] с явным scope и dependencies |
+| **FileResourceManager** | Управление reservedPaths, resultCache, lockTimeout |
+| **AgentDispatcher** | Fan-out задач, передача только разрешённого scope |
+| **VerificationGate** | Проверка coverage(scope) и status перед агрегацией |
+| **ExitController** | Физические ограничения: maxDepth, maxRetries, timeout |
+
+### Scope Definition
+
+```typescript
+scope: {
+  include: string[];    // Глобы/пути: ['src/auth/*', 'src/middleware/*.ts']
+  exclude?: string[];   // Исключения: ['**/*.test.ts', 'node_modules/**']
+  fileTypes?: string[]; // Расширения: ['.ts', '.tsx', '.js']
+}
+```
+
+### Retry стратегии
+
+| Ошибка | Стратегия | Описание |
+|--------|-----------|----------|
+| `TIMEOUT` | `RETRY_SAME_PLAN` | Повтор с теми же параметрами |
+| `FS_LOCK` | `RETRY_SAME_PLAN` | Повтор после освобождения блокировки |
+| `EMPTY_RESULT` | `RETRY_WITH_HINT` | Повтор + уточняющий промпт |
+| `INVALID_SCOPE` | `REPLAN` | Полный пересмотр плана |
+| `CRITICAL_ERROR` | `FAIL_FAST` | Немедленная остановка |
+
+### Exit Criteria
+
+```typescript
+const DEFAULT_EXIT_CRITERIA = {
+  maxDepth: 3,              // Максимальная глубина делегирования
+  maxRetries: 2,            // Максимум повторных попыток
+  timeout: 120000,          // Общий таймаут (2 минуты)
+  earlyExitOnCacheHit: true // Ранний выход при попадании в кэш
+};
+```
+
+### Использование
+
+```typescript
+const manager = new DelegationManager(options);
+
+// Новый API с DAG-планированием
+const result = await manager.executeWithPlan('Analyze authentication flow');
+
+// Legacy API (сохранён для обратной совместимости)
+const results = await manager.execute('fan-out', config);
+```
+
+### Преимущества
+
+1. **Избежание дублирования** — Resource Reservation + Scope Validation
+2. **Контроль выполнения** — VerificationGate + ExitController
+3. **Гибкость** — Гибридное планирование (эвристика + LLM)
+4. **Надёжность** — Retry стратегии с exponential backoff
+5. **Обратная совместимость** — Legacy wrapper для старого API
+
 ## Установка
 
 ```bash
@@ -357,6 +440,11 @@ src/
 │       ├── fan-out.ts     # Параллельное выполнение
 │       ├── chain.ts       # Последовательная цепочка
 │       ├── router.ts      # Маршрутизация по условию
+│       ├── planner.ts     # DAG-планирование задач
+│       ├── dispatcher.ts  # Диспетчеризация агентов
+│       ├── resource-manager.ts    # Управление ресурсами
+│       ├── exit-controller.ts     # Контроль выхода
+│       ├── verification.ts        # Верификация результатов
 │       ├── manager.ts     # Фасад для делегирования
 │       └── index.ts       # Экспорт модуля
 ├── llm/
@@ -368,6 +456,7 @@ src/
 │   │   ├── file-read.ts
 │   │   ├── file-write.ts
 │   │   ├── find-files.ts
+│   │   ├── content-search.ts  # Поиск по содержимому файлов
 │   │   └── delegate.ts   # Tool для делегирования
 │   ├── mcp/              # MCP tools
 │   │   ├── git-*.ts      # Git tools

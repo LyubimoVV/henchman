@@ -55,16 +55,28 @@ export async function toolUseLoop(
         onContent?.(response.content);
       }
 
+      // Early exit: если LLM дал ответ без tool calls, задача выполнена
       if (!response.toolCalls || response.toolCalls.length === 0) {
         logger.info('main', 'Tool Use Loop completed', {
           iterations: iteration,
           totalToolCalls,
+          reason: response.content ? 'llm_provided_answer' : 'no_tool_calls',
         });
         return {
           messages: currentMessages,
           finalContent: response.content ?? '',
           toolCallsCount: totalToolCalls,
         };
+      }
+
+      // Warning if approaching max iterations
+      if (iteration >= maxIterations - 3 && iteration < maxIterations) {
+        logger.warn('main', 'Approaching max iterations', {
+          currentIteration: iteration,
+          maxIterations,
+          toolCallsSoFar: totalToolCalls + response.toolCalls.length,
+          recommendation: 'Consider providing answer with current information',
+        });
       }
 
       const assistantMessage: ChatMessage = {
@@ -98,11 +110,18 @@ export async function toolUseLoop(
     }
   }
 
-  logger.warn('main', `Tool Use Loop reached max iterations (${maxIterations})`);
+  logger.warn('main', `Tool Use Loop reached max iterations (${maxIterations})`, {
+    iterations: iteration,
+    totalToolCalls,
+    hasUnfinishedContent: !!currentMessages[currentMessages.length - 1]?.content,
+  });
 
+  // Попытка сформировать частичный ответ из последних сообщений
+  const lastAssistantMessage = [...currentMessages].reverse().find(m => m.role === 'assistant' && m.content);
+  
   return {
     messages: currentMessages,
-    finalContent: '',
+    finalContent: lastAssistantMessage?.content ?? '',
     toolCallsCount: totalToolCalls,
   };
 }

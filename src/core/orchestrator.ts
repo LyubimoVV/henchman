@@ -119,7 +119,10 @@ export class Orchestrator {
 
     this.context = addUserMessage(this.context, userMessage);
 
-    const systemPrompt = buildSystemPrompt(this.context);
+    const systemPrompt = buildSystemPrompt(
+      this.context,
+      this.orchestratorTools.map(t => t.name),
+    );
     const messages: ChatMessage[] = [
       { role: 'system', content: systemPrompt },
       ...this.context.messages,
@@ -128,12 +131,6 @@ export class Orchestrator {
     const result = await toolUseLoop(messages, {
       maxIterations: 15,
       tools: this.orchestratorTools,
-      onToolCall: (name, args) => {
-        logger.toolCall(name, args);
-      },
-      onToolResult: (name, _result, success) => {
-        logger.toolResult(name, success);
-      },
     });
 
     if (result.finalContent) {

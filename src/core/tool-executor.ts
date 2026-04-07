@@ -3,6 +3,12 @@ import { toolRegistry } from './tool-registry';
 import { logger } from './logger';
 import { createErrorHandler } from './error-handler';
 
+const TOOL_TIMEOUTS: Record<string, number> = {
+  delegate: 120000,
+  bash: 60000,
+  default: 30000,
+};
+
 export interface ExecutorOptions {
   errorHandler?: ErrorHandler;
   timeout?: number;
@@ -10,11 +16,11 @@ export interface ExecutorOptions {
 
 export class ToolExecutor {
   private errorHandler: ErrorHandler;
-  private timeout: number;
+  private defaultTimeout: number;
 
   constructor(options: ExecutorOptions = {}) {
     this.errorHandler = options.errorHandler ?? createErrorHandler('default');
-    this.timeout = options.timeout ?? 30000;
+    this.defaultTimeout = options.timeout ?? 30000;
   }
 
   async execute(
@@ -22,7 +28,7 @@ export class ToolExecutor {
     args: Record<string, unknown>,
     maxRetries: number = 3
   ): Promise<ToolResult> {
-    const tool = toolRegistry.getByName(toolName);
+    let tool = toolRegistry.getByName(toolName);
 
     if (!tool) {
       logger.error('tool', `Tool not found: ${toolName}`);
@@ -33,15 +39,18 @@ export class ToolExecutor {
       };
     }
 
+    // Нормализация аргументов для content_search
+    const normalizedArgs = this.normalizeContentSearchArgs(toolName, args);
+
     const startTime = Date.now();
-    logger.toolCall(toolName, args);
+    logger.toolCall(toolName, normalizedArgs);
 
     let attempt = 0;
     while (attempt < maxRetries) {
       attempt++;
 
       try {
-        const result = await this.executeWithTimeout(tool, args);
+        const result = await this.executeWithTimeout(tool, normalizedArgs);
         const duration = Date.now() - startTime;
         logger.toolResult(toolName, true, duration);
 
@@ -50,10 +59,10 @@ export class ToolExecutor {
           result,
         };
       } catch (error) {
-        const toolError: ToolError = {
+    const toolError: ToolError = {
           toolName,
           error: error instanceof Error ? error : new Error(String(error)),
-          args,
+          args: normalizedArgs,
           attempt,
         };
 
@@ -92,10 +101,12 @@ export class ToolExecutor {
     tool: ToolDefinition,
     args: Record<string, unknown>
   ): Promise<unknown> {
+    const timeout = TOOL_TIMEOUTS[tool.name] ?? this.defaultTimeout;
+    
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
-        reject(new Error(`Tool execution timed out after ${this.timeout}ms`));
-      }, this.timeout);
+        reject(new Error(`Tool execution timed out after ${timeout}ms`));
+      }, timeout);
 
       tool.execute(args)
         .then((result) => {
@@ -107,6 +118,28 @@ export class ToolExecutor {
           reject(error);
         });
     });
+  }
+
+  private normalizeContentSearchArgs(toolName: string, args: Record<string, unknown>): Record<string, unknown> {
+    if (toolName !== 'content_search') {
+      return args;
+    }
+
+    // Автоисправление: query → pattern
+    if (!args['pattern'] && args['query']) {
+      logger.warn('tool', 'Auto-correcting content_search: "query" → "pattern" (use "pattern" parameter directly)');
+      const normalized = { ...args, pattern: args['query'] };
+      delete (normalized as Record<string, unknown>).query;
+      return normalized;
+    }
+
+    // Строгий режим (если задан в config)
+    if (process.env.STRICT_TOOL_ARGS === 'true' && !args['pattern']) {
+      logger.error('tool', 'content_search requires "pattern" parameter (not "query")');
+      throw new Error('content_search requires "pattern" parameter. Example: content_search({pattern: "class UserService", fileTypes: ["java"]})');
+    }
+
+    return args;
   }
 
   private async executeFallback(

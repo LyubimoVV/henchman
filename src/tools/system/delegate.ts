@@ -127,10 +127,14 @@ export function createDelegateTool(deps: DelegateToolDeps): ToolDefinition {
     name: 'delegate',
     category: 'system',
     description:
-      'Delegate tasks to specialized subagents. ' +
-      'Patterns: fan-out (parallel execution), chain (sequential with result passing), ' +
-      'router (conditional routing). ' +
-      'Subagents work in isolation and cannot access this tool.',
+      'Delegate tasks to specialized subagents who have direct access to search and file tools. ' +
+      'YOU MUST USE THIS TOOL FOR ALL tasks requiring file search, code analysis, or file reading. ' +
+      'Subagent tools: glob_search, content_search, rag_search, read_file, list_files. ' +
+      'Patterns: fan-out (parallel), chain (sequential), router (conditional). ' +
+      'Examples: ' +
+      'delegate({pattern:"fan-out",config:{tasks:[{description:"Find DeepSeekClient class",tools:["glob_search","rag_search","read_file"]}]}}) ' +
+      'delegate({pattern:"fan-out",config:{tasks:[{description:"Analyze authentication flow",tools:["rag_search","content_search","read_file"]}]}}) ' +
+      'delegate({pattern:"chain",config:{tasks:[{description:"Find all Service classes",tools:["glob_search"]},{description:"Read and summarize each",tools:["read_file"]}]}})',
     parameters: createDelegateSchema(),
     execute,
   };

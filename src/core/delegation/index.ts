@@ -4,3 +4,8 @@ export * from './fan-out';
 export * from './chain';
 export * from './router';
 export * from './manager';
+export * from './planner';
+export * from './dispatcher';
+export * from './resource-manager';
+export * from './exit-controller';
+export * from './verification';

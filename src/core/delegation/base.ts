@@ -16,7 +16,15 @@ const TOOL_ALIASES: Record<string, string> = {
   'find': 'find_files',
   'search_files': 'find_files',
   'current_branch': 'git_branch',
+  'search': 'rag_search',
+  'semantic_search': 'rag_search',
+  'grep': 'content_search',
+  'content_grep': 'content_search',
 };
+
+const BLOCKED_TOOLS = ['delegate', 'fan-out', 'chain', 'router'];
+
+const DEFAULT_SUBAGENT_TOOLS = ['rag_search', 'content_search'];
 
 export abstract class DelegationExecutor {
   protected options: DelegationExecutorOptions;
@@ -28,7 +36,7 @@ export abstract class DelegationExecutor {
   abstract execute(config: unknown): Promise<DelegationResult[] | DelegationResult>;
 
   protected createSubagentContext(task: DelegationTask): SubagentContext {
-    return {
+    const baseContext: SubagentContext = {
       projectPath: this.options.projectPath,
       gitBranch: this.options.gitBranch,
       indexedFiles: this.options.indexedFiles,
@@ -38,18 +46,30 @@ export abstract class DelegationExecutor {
       allowedTools: task.tools,
       ...task.context,
     };
+
+    if (task.sharedContext) {
+      baseContext.sharedContext = {
+        foundFiles: Array.from(task.sharedContext.foundFiles),
+        searchCache: Object.fromEntries(task.sharedContext.searchCache),
+      };
+    }
+
+    return baseContext;
   }
 
   protected resolveTools(toolNames: string[]): ToolDefinition[] {
     const tools: ToolDefinition[] = [];
     const notFound: string[] = [];
+    const allToolNames = [...new Set([...DEFAULT_SUBAGENT_TOOLS, ...toolNames])];
     
-    for (const name of toolNames) {
-      if (name === 'delegate') {
-        logger.warn('subagent', 'Subagent task attempted to use delegate tool - ignoring');
+    for (const name of allToolNames) {
+      const resolvedName = TOOL_ALIASES[name] ?? name;
+      
+      if (BLOCKED_TOOLS.includes(resolvedName) || BLOCKED_TOOLS.includes(name)) {
+        logger.warn('subagent', `Subagent task attempted to use blocked tool "${name}" - ignoring`);
         continue;
       }
-      const resolvedName = TOOL_ALIASES[name] ?? name;
+      
       const tool = this.options.subagentTools.find((t) => t.name === resolvedName);
       if (tool) {
         if (resolvedName !== name) {
@@ -62,14 +82,14 @@ export abstract class DelegationExecutor {
       }
     }
 
-    if (tools.length === 0 && toolNames.length > 0) {
+    if (tools.length === 0 && allToolNames.length > 0) {
       logger.warn('subagent', 'No tools available for subagent after resolution', {
-        requested: toolNames,
+        requested: allToolNames,
         notFound,
       });
     } else if (tools.length > 0) {
       logger.info('subagent', 'Subagent tools resolved', {
-        requested: toolNames,
+        requested: allToolNames,
         available: tools.map(t => t.name),
         notFound: notFound.length > 0 ? notFound : undefined,
       });

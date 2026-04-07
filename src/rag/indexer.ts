@@ -5,11 +5,15 @@ import { chunker, type Chunk } from './chunker';
 import { embedder } from './embedder';
 import { vectorStore } from './vector-store';
 import { logger } from '../core/logger';
+import { detectProjectStructure, getExcludePatterns, type ProjectStructure } from '../core/project-structure';
 
 const INDEXABLE_EXTENSIONS = [
+  // Documentation
   '.md', '.txt', '.rst',
-  '.json', '.yaml', '.yml',
-  '.toml', '.ini',
+  // Config
+  '.json', '.yaml', '.yml', '.toml', '.ini', '.xml',
+  // Source code - Java/Kotlin (for current project)
+  '.java', '.kt', '.kts',
 ];
 
 const INDEXABLE_PATTERNS = [
@@ -20,6 +24,10 @@ const INDEXABLE_PATTERNS = [
   '**/*.json',
   '**/*.yaml',
   '**/*.yml',
+  // Source code - Java/Kotlin
+  'src/**/*.java',
+  'src/**/*.kt',
+  'src/**/*.kts',
 ];
 
 export interface IndexerResult {
@@ -29,6 +37,8 @@ export interface IndexerResult {
 }
 
 class Indexer {
+  private structure: ProjectStructure | null = null;
+
   async indexProject(projectPath: string): Promise<IndexerResult> {
     const result: IndexerResult = {
       filesProcessed: 0,
@@ -37,6 +47,15 @@ class Indexer {
     };
 
     logger.ragOperation('Starting project indexing', { projectPath });
+
+    this.structure = detectProjectStructure(projectPath);
+    
+    logger.ragOperation('Detected project structure', {
+      language: this.structure.language,
+      buildTool: this.structure.buildTool,
+      sourceDirs: this.structure.sourceDirs,
+      buildDirs: this.structure.buildDirs,
+    });
 
     const files = await this.discoverFiles(projectPath);
     logger.ragOperation('Discovered files', { count: files.length });
@@ -64,10 +83,29 @@ class Indexer {
   private async discoverFiles(projectPath: string): Promise<string[]> {
     const allFiles: Set<string> = new Set();
 
+    const excludePatterns = this.structure 
+      ? getExcludePatterns(this.structure)
+      : [
+        'node_modules/**',
+        'dist/**',
+        'build/**',
+        '.git/**',
+        'target/**',
+        'bin/**',
+        'out/**',
+        '.gradle/**',
+        '**/*.class',
+        '**/*.jar',
+        '.vscode/**',
+        '**/*.iml',
+        '**/surefire-reports/**',
+        '**/test-classes/**',
+      ];
+
     for (const pattern of INDEXABLE_PATTERNS) {
       const files = await glob(pattern, {
         cwd: projectPath,
-        ignore: ['node_modules/**', 'dist/**', 'build/**', '.git/**', 'target/**'],
+        ignore: excludePatterns,
         nodir: true,
         absolute: true,
       });
