@@ -1,6 +1,7 @@
 import { glob } from 'glob';
 import type { ToolDefinition, ToolResult } from '../../core/types';
 import { createSimpleToolSchema } from '../../llm/function-calling';
+import { getCurrentProjectPath } from './project-context';
 
 export const findFilesTool: ToolDefinition = {
   name: 'find_files',
@@ -26,7 +27,7 @@ export const findFilesTool: ToolDefinition = {
   ),
   execute: async (args: Record<string, unknown>): Promise<ToolResult> => {
     const pattern = args['pattern'] as string;
-    const cwd = (args['cwd'] as string) ?? process.cwd();
+    const cwd = (args['cwd'] as string) ?? getCurrentProjectPath() ?? process.cwd();
     const ignoreStr = args['ignore'] as string | undefined;
 
     if (!pattern) {

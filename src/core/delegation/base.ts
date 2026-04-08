@@ -27,7 +27,8 @@ const TOOL_ALIASES: Record<string, string> = {
 
 const BLOCKED_TOOLS = ['delegate', 'fan-out', 'chain', 'router'];
 
-const DEFAULT_SUBAGENT_TOOLS = ['rag_search', 'content_search'];
+const DEFAULT_SUBAGENT_TOOLS = ['rag_search', 'content_search', 'bash', 'file_read', 'file_write'];
+const EXPANDED_DEFAULT_TOOLS = ['rag_search', 'content_search', 'file_read', 'file_write', 'glob_search', 'list_files', 'bash'];
 
 export abstract class DelegationExecutor {
   protected options: DelegationExecutorOptions;
@@ -53,14 +54,18 @@ export abstract class DelegationExecutor {
       taskDescription: task.description,
       parentAgentId: 'delegation',
       allowedTools: task.tools,
-      ...task.context,
+      techStack: this.options.techStack,
+    } as SubagentContext;
+
+    baseContext.sharedContext = {
+      foundFiles: Array.from(task.sharedContext?.foundFiles ?? []),
+      searchCache: task.sharedContext?.searchCache 
+        ? Object.fromEntries(task.sharedContext.searchCache) 
+        : {},
     };
 
-    if (task.sharedContext) {
-      baseContext.sharedContext = {
-        foundFiles: Array.from(task.sharedContext.foundFiles),
-        searchCache: Object.fromEntries(task.sharedContext.searchCache),
-      };
+    if (task.context) {
+      Object.assign(baseContext, task.context);
     }
 
     return baseContext;
@@ -70,7 +75,9 @@ export abstract class DelegationExecutor {
     const agent = this.getAgentInfo();
     const tools: ToolDefinition[] = [];
     const notFound: string[] = [];
-    const allToolNames = [...new Set([...DEFAULT_SUBAGENT_TOOLS, ...toolNames])];
+    const effectiveTaskTools = toolNames.length === 0 ? [] : toolNames;
+    const defaults = toolNames.length === 0 ? EXPANDED_DEFAULT_TOOLS : DEFAULT_SUBAGENT_TOOLS;
+    const allToolNames = [...new Set([...defaults, ...effectiveTaskTools])];
     
     for (const name of allToolNames) {
       const resolvedName = TOOL_ALIASES[name] ?? name;

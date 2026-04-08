@@ -2,6 +2,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { ToolDefinition, ToolResult } from '../../core/types';
 import { createSimpleToolSchema } from '../../llm/function-calling';
+import { getCurrentProjectPath } from './project-context';
 
 const execAsync = promisify(exec);
 
@@ -50,7 +51,7 @@ export const contentSearchTool: ToolDefinition = {
   ),
   execute: async (args: Record<string, unknown>): Promise<ToolResult> => {
     const pattern = args['pattern'] as string;
-    const path = (args['path'] as string) ?? '.';
+    const path = (args['path'] as string) ?? getCurrentProjectPath() ?? '.';
     const fileType = args['fileType'] as string | undefined;
     const fileTypes = args['fileTypes'] as string[] | undefined;
     const ignoreCase = (args['ignoreCase'] as boolean) ?? false;

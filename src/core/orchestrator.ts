@@ -19,14 +19,16 @@ import { logger } from './logger';
 import { indexer } from '../rag/indexer';
 import { vectorStore } from '../rag/vector-store';
 import { createMcpTools } from '../tools/mcp';
-import { systemTools, createDelegateTool, createQuestionTool } from '../tools/system';
+import { systemTools, createDelegateTool, createQuestionTool, setCurrentProjectPath as setSystemProjectPath } from '../tools/system';
 import { ragTools, setCurrentProjectPath } from '../tools/rag';
+import { detectTechStack } from './tech-stack';
 
 export interface OrchestratorOptions {
   projectPath: string;
   autoIndex?: boolean;
   onContent?: (content: string) => void;
   onPermissionAsk?: (toolName: string, args: Record<string, unknown>) => Promise<boolean>;
+  onToolCall?: (toolName: string, args: Record<string, unknown>) => void;
 }
 
 export class Orchestrator {
@@ -39,6 +41,7 @@ export class Orchestrator {
   private abortController: AbortController;
   private onContent?: (content: string) => void;
   private onPermissionAsk?: (toolName: string, args: Record<string, unknown>) => Promise<boolean>;
+  private onToolCall?: (toolName: string, args: Record<string, unknown>) => void;
 
   constructor(options: OrchestratorOptions) {
     this.context = createConversationContext(options.projectPath);
@@ -48,6 +51,7 @@ export class Orchestrator {
     this.abortController = new AbortController();
     this.onContent = options.onContent;
     this.onPermissionAsk = options.onPermissionAsk;
+    this.onToolCall = options.onToolCall;
 
     this.session = sessionStore.create({ agentName: this.currentAgent.name });
 
@@ -66,6 +70,7 @@ export class Orchestrator {
 
   private initializeTools(projectPath: string): void {
     setCurrentProjectPath(projectPath);
+    setSystemProjectPath(projectPath);
 
     const mcpTools = createMcpTools(projectPath);
 
@@ -100,11 +105,11 @@ export class Orchestrator {
     this.subagentTools = allTools.filter(
       t => !['delegate'].includes(t.name),
     );
+    toolRegistry.registerMany(allTools);
+
     this.orchestratorTools = this.resolveOrchestratorTools();
 
     this.delegationManager.updateOptions({ subagentTools: this.subagentTools });
-
-    toolRegistry.registerMany(allTools);
     logger.info('main', `Registered tools: ${this.orchestratorTools.length} for orchestrator, ${this.subagentTools.length} for subagents`);
   }
 
@@ -142,6 +147,16 @@ export class Orchestrator {
     logger.info('main', 'Auto-indexing project...', { projectPath });
 
     try {
+      const stack = await detectTechStack(projectPath);
+      this.context.techStack = stack.techStack;
+      if (stack.name) this.context.projectName = stack.name;
+      this.delegationManager.updateOptions({ techStack: stack.techStack });
+      logger.info('main', 'Tech stack detected', { ...stack });
+    } catch (error) {
+      logger.debug('main', 'Could not detect tech stack', { error: (error as Error).message });
+    }
+
+    try {
       const gitBranchTool = this.subagentTools.find((t: ToolDefinition) => t.name === 'git_branch');
       if (gitBranchTool) {
         const result = await gitBranchTool.execute({});
@@ -176,9 +191,15 @@ export class Orchestrator {
   async handleMessage(userMessage: string): Promise<string> {
     logger.info('main', `Processing message: ${userMessage.substring(0, 50)}...`);
 
+    if (this.isSimpleFileReadRequest(userMessage)) {
+      logger.info('main', 'Simple file read request detected, using fast-path');
+      return this.handleSimpleFileRead(userMessage);
+    }
+
     this.abortController = new AbortController();
     sessionStore.setStatus(this.session.id, 'active');
 
+    this.context = this.sanitizeContext(this.context);
     this.context = addUserMessage(this.context, userMessage);
     sessionStore.addMessage(this.session.id, { role: 'user', content: userMessage });
 
@@ -198,6 +219,7 @@ export class Orchestrator {
       signal: this.abortController.signal,
       onContent: this.onContent,
       onPermissionAsk: this.onPermissionAsk,
+      onToolCall: this.onToolCall,
     };
 
     const result = await toolUseLoop(messages, loopOptions);
@@ -342,5 +364,76 @@ export class Orchestrator {
       });
       return `Error during execution: ${error instanceof Error ? error.message : String(error)}`;
     }
+  }
+
+  private isSimpleFileReadRequest(msg: string): boolean {
+    const normalized = msg.trim().toLowerCase();
+    const patterns = [
+      /^(?:прочитай|покажи|открой|read|show|cat|display)\s+\S/i,
+      /^(?:что в|что внутри|what'?s in|contents of)\s/i,
+      /\.(?:md|txt|json|yml|yaml|ts|js|tsx|jsx|py|java|xml|properties|conf|cfg|env|gitignore|toml|ini|sh|bat|ps1)\s*$/i,
+    ];
+    return patterns.some(p => p.test(normalized));
+  }
+
+  private async handleSimpleFileRead(userMessage: string): Promise<string> {
+    this.abortController = new AbortController();
+    sessionStore.setStatus(this.session.id, 'active');
+
+    this.context = addUserMessage(this.context, userMessage);
+    sessionStore.addMessage(this.session.id, { role: 'user', content: userMessage });
+
+    try {
+      const { subagentId, result } = await this.spawnSubagent(
+        userMessage,
+        ['read_file', 'bash', 'glob_search', 'list_files'],
+        'general',
+      );
+
+      const subResult = result as { data?: unknown; status?: string };
+      const answer = typeof subResult?.data === 'string' && subResult.data.length > 0
+        ? subResult.data
+        : 'Unable to read the file.';
+
+      logger.info('main', 'Simple read fast-path completed', { subagentId });
+
+      this.context = addAssistantMessage(this.context, answer);
+      sessionStore.addMessage(this.session.id, { role: 'assistant', content: answer });
+      sessionStore.setStatus(this.session.id, 'completed');
+
+      return answer;
+    } catch (error) {
+      logger.error('main', 'Simple read fast-path failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      sessionStore.setStatus(this.session.id, 'completed');
+      return this.handleMessage(userMessage);
+    }
+  }
+
+  private sanitizeContext(ctx: ConversationContext): ConversationContext {
+    const projectDir = ctx.projectPath.replace(/\\/g, '/').split('/').pop() ?? '';
+
+    const cleaned = ctx.messages.filter((msg) => {
+      if (msg.role === 'system') return false;
+      if (!msg.content || typeof msg.content !== 'string') return true;
+
+      const hasAbsoluteOtherProject = /[A-Za-z]:\\[^\s]*[/\\]([^/\\]+)/g.test(msg.content);
+      if (!hasAbsoluteOtherProject) return true;
+
+      const content = msg.content.replace(/\\/g, '/');
+      const projectPattern = `/${projectDir}/`;
+      return content.includes(projectPattern) || !content.includes('/project_demo/');
+    });
+
+    if (cleaned.length !== ctx.messages.length) {
+      logger.info('main', 'Context sanitized: removed stale messages', {
+        before: ctx.messages.length,
+        after: cleaned.length,
+        projectPath: ctx.projectPath,
+      });
+    }
+
+    return { ...ctx, messages: cleaned };
   }
 }

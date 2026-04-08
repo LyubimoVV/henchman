@@ -4,6 +4,7 @@ import { llmClient, type ToolDescription } from '../llm/client';
 import { toolExecutor } from './tool-executor';
 import { buildToolSchemas } from '../llm/function-calling';
 import { evaluatePermission } from './permission';
+import { extractDelegateFromContent } from '../tools/system/delegate';
 import { logger } from './logger';
 
 export interface ToolUseLoopOptions {
@@ -41,7 +42,12 @@ export async function toolUseLoop(
   let currentMessages = [...messages];
   let iteration = 0;
   let totalToolCalls = 0;
+  let hasSuccessfulToolResult = false;
   const toolSchemas: ToolDescription[] = buildToolSchemas(tools);
+  const isDelegateOnly = tools.length > 0 && tools.every(t => t.name === 'delegate' || t.name === 'question');
+  const effectiveToolChoice: 'auto' | 'required' | undefined = isDelegateOnly ? 'required' : undefined;
+
+  let currentToolChoice: 'auto' | 'required' | undefined = effectiveToolChoice;
 
   logger.info('main', 'Starting Tool Use Loop', {
     maxIterations,
@@ -63,6 +69,7 @@ export async function toolUseLoop(
         {
           messages: currentMessages,
           tools: toolSchemas,
+          toolChoice: currentToolChoice,
           temperature: agent?.temperature,
         },
         (event) => {
@@ -79,25 +86,47 @@ export async function toolUseLoop(
         finishReason: response.finishReason,
       });
 
-      if (!response.toolCalls || response.toolCalls.length === 0) {
-        logger.info('main', 'Tool Use Loop completed', {
-          iterations: iteration,
-          totalToolCalls,
-          reason: response.content ? 'llm_provided_answer' : 'no_tool_calls',
-        });
+      if (hasSuccessfulToolResult && response.content && response.content.trim().length > 0
+          && (!response.toolCalls || response.toolCalls.length === 0)) {
+        logger.info('main', 'Early stopping: tool result processed, LLM provided answer');
+        currentMessages.push({ role: 'assistant', content: response.content });
         return {
           messages: currentMessages,
-          finalContent: response.content ?? '',
+          finalContent: response.content,
           toolCallsCount: totalToolCalls,
         };
       }
+      
+      if (!response.toolCalls || response.toolCalls.length === 0) {
+        const extracted = extractDelegateFromContent(response.content ?? '');
+        if (extracted) {
+          logger.info('main', 'Falling back to content-extracted delegate call');
+          response.toolCalls = [{
+            id: `extracted_${Date.now()}`,
+            name: 'delegate',
+            arguments: { pattern: extracted.pattern, config: extracted.config },
+          }];
+        } else {
+          logger.info('main', 'Tool Use Loop completed - no tool calls', {
+            iterations: iteration,
+            totalToolCalls,
+            reason: response.content ? 'llm_provided_answer' : 'no_tool_calls',
+          });
+          return {
+            messages: currentMessages,
+            finalContent: response.content ?? '',
+            toolCallsCount: totalToolCalls,
+          };
+        }
+      } else if (response.toolCalls.length === 0 && !response.content) {
+        logger.warn('main', 'LLM returned empty response');
+      }
 
       if (iteration >= maxIterations - 3 && iteration < maxIterations) {
-        logger.warn('main', 'Approaching max iterations', {
+        logger.debug('main', 'Approaching max iterations', {
           currentIteration: iteration,
           maxIterations,
           toolCallsSoFar: totalToolCalls + response.toolCalls.length,
-          recommendation: 'Consider providing answer with current information',
         });
       }
 
@@ -156,12 +185,39 @@ export async function toolUseLoop(
 
         onToolResult?.(toolCall.name, result.result, result.success);
 
+        if (result.success) {
+          hasSuccessfulToolResult = true;
+        }
+
+        if (toolCall.name === 'delegate' && result.success) {
+          currentToolChoice = undefined;
+          const delegateData = result.result as { pattern: string; data: unknown } | undefined;
+          if (delegateData?.data) {
+            const delegationResults = Array.isArray(delegateData.data) ? delegateData.data : [delegateData.data];
+            const results = delegationResults as Array<{ status: string }>;
+            const allFailed = results.every(r => r.status === 'error');
+            const anySuccess = results.some(r => r.status === 'success');
+            if (!allFailed && anySuccess) {
+              hasSuccessfulToolResult = true;
+            }
+          } else {
+            hasSuccessfulToolResult = true;
+          }
+        }
+
         const toolMessage: ChatMessage = {
           role: 'tool',
           toolCallId: toolCall.id,
           content: JSON.stringify(result.success ? result.result : { error: result.error }),
         };
         currentMessages.push(toolMessage);
+
+        if (toolCall.name === 'delegate' && result.success && hasSuccessfulToolResult) {
+          currentMessages.push({
+            role: 'system',
+            content: 'IMPORTANT: Delegate returned results successfully. You MUST now provide a FINAL TEXT ANSWER to the user. Do NOT call any more tools. Do NOT ask questions. Just summarize and present the results.',
+          });
+        }
       }
     } catch (error) {
       if (signal?.aborted) {
@@ -182,8 +238,24 @@ export async function toolUseLoop(
     hasUnfinishedContent: !!currentMessages[currentMessages.length - 1]?.content,
   });
 
+  if (hasSuccessfulToolResult) {
+    const toolMessages = currentMessages.filter(m => m.role === 'tool');
+    for (const msg of [...toolMessages].reverse()) {
+      try {
+        const parsed = JSON.parse(msg.content || '');
+        if (parsed?.data) {
+          const dataStr = typeof parsed.data === 'string' ? parsed.data : JSON.stringify(parsed.data, null, 2);
+          if (dataStr.length > 0) {
+            logger.info('main', 'Returning delegate data as fallback after max iterations');
+            return { messages: currentMessages, finalContent: dataStr, toolCallsCount: totalToolCalls };
+          }
+        }
+      } catch { /* skip */ }
+    }
+  }
+
   const lastAssistantMessage = [...currentMessages].reverse().find(m => m.role === 'assistant' && m.content);
-  
+   
   return {
     messages: currentMessages,
     finalContent: lastAssistantMessage?.content ?? '',

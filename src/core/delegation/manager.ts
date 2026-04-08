@@ -31,12 +31,15 @@ export class DelegationManager {
 
   constructor(options: DelegationExecutorOptions) {
     this.options = options;
-
-    this.resourceManager = new FileResourceManager();
-    this.exitController = new ExitController(DEFAULT_EXIT_CRITERIA);
     this.planner = new TaskPlanner(options);
-    this.dispatcher = new AgentDispatcher(options, this.resourceManager, this.exitController);
+    this.resourceManager = new FileResourceManager();
+    this.exitController = new ExitController(options.exitCriteria ?? DEFAULT_EXIT_CRITERIA);
     this.verificationGate = new VerificationGate();
+    this.dispatcher = new AgentDispatcher(
+      options,
+      this.resourceManager,
+      this.exitController
+    );
   }
 
   async executeWithPlan(goal: string): Promise<AggregatedResult> {

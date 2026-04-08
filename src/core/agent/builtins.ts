@@ -26,7 +26,7 @@ export const PLAN_AGENT: AgentInfo = {
     { tool: 'file_write', action: 'deny' },
     { tool: 'edit_file', action: 'deny' },
   ],
-  maxIterations: 15,
+  maxIterations: 5,
   temperature: 0.7,
 };
 
@@ -39,7 +39,7 @@ export const EXPLORE_SUBAGENT: AgentInfo = {
     { tool: 'file_write', action: 'deny' },
     { tool: 'bash', action: 'deny' },
   ],
-  maxIterations: 10,
+  maxIterations: 8,
   temperature: 0.3,
 };
 
@@ -47,8 +47,11 @@ export const GENERAL_SUBAGENT: AgentInfo = {
   name: 'general',
   description: 'Multi-step subagent for complex research and tasks',
   mode: 'subagent',
-  permissions: [{ tool: 'delegate', action: 'deny' }],
-  maxIterations: 15,
+  permissions: [
+    { tool: 'delegate', action: 'deny' },
+    { tool: 'file_write', action: 'allow' },
+  ],
+  maxIterations: 20,
   temperature: 0.7,
 };
 

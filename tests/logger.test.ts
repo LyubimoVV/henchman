@@ -7,7 +7,7 @@ describe('Logger', () => {
 
   beforeEach(() => {
     logger = new Logger('warn', false);
-    consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -36,19 +36,15 @@ describe('Logger', () => {
   });
 
   it('should log warn messages', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     logger.warn('main', 'warn message');
     
-    expect(warnSpy).toHaveBeenCalled();
-    warnSpy.mockRestore();
+    expect(consoleSpy).toHaveBeenCalled();
   });
 
   it('should log error messages to console.error', () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     logger.error('main', 'error message');
     
-    expect(errorSpy).toHaveBeenCalled();
-    errorSpy.mockRestore();
+    expect(consoleSpy).toHaveBeenCalled();
   });
 
   it('should set debug mode and show debug logs', () => {

@@ -6,6 +6,7 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   info: 1,
   warn: 2,
   error: 3,
+  silent: 4,
 };
 
 const CATEGORY_COLORS: Record<LogCategory, (str: string) => string> = {
@@ -23,6 +24,7 @@ const LEVEL_COLORS: Record<LogLevel, (str: string) => string> = {
   info: pc.white,
   warn: pc.yellow,
   error: pc.red,
+  silent: pc.gray,
 };
 
 class Logger {
@@ -31,7 +33,7 @@ class Logger {
   private paused: boolean = false;
   private pendingLogs: string[] = [];
 
-  constructor(minLevel: LogLevel = 'warn', debugMode: boolean = false) {
+  constructor(minLevel: LogLevel = 'silent', debugMode: boolean = false) {
     this.minLevel = (process.env.LOG_LEVEL as LogLevel) ?? minLevel;
     this.debugMode = debugMode;
   }
@@ -45,7 +47,7 @@ class Logger {
     if (enabled) {
       this.minLevel = 'debug';
     } else if (this.minLevel === 'debug') {
-      this.minLevel = 'warn';
+      this.minLevel = 'error';
     }
   }
 
@@ -152,8 +154,8 @@ class Logger {
     this.info('subagent', `Spawning: ${taskId}`, { description });
   }
 
-  subagentComplete(taskId: string, status: 'success' | 'error'): void {
-    const icon = status === 'success' ? '✓' : '✗';
+  subagentComplete(taskId: string, status: 'success' | 'error' | 'partial'): void {
+    const icon = status === 'success' ? '✓' : status === 'partial' ? '⚠' : '✗';
     this.info('subagent', `${icon} Completed: ${taskId}`, { status });
   }
 

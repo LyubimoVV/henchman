@@ -1,6 +1,6 @@
 export type ToolCategory = 'rag' | 'mcp' | 'system';
 export type LogCategory = 'main' | 'subagent' | 'rag' | 'mcp' | 'system' | 'tool' | 'delegation';
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 export type ErrorStrategy = 'retry' | 'fallback' | 'abort' | 'ask_user';
 
 export interface BaseContext {
@@ -33,6 +33,8 @@ export interface ConversationContext extends BaseContext {
   messages: ChatMessage[];
   activeSubagents: SubagentInfo[];
   modifiedFiles: string[];
+  techStack?: string;
+  projectName?: string;
 }
 
 export interface RetrievedChunk {
@@ -96,8 +98,9 @@ export interface SubagentTask {
 
 export interface SubagentResult {
   taskId: string;
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'partial';
   data: unknown;
+  taskCompleted?: boolean;
   filesModified: string[];
   logs: string[];
   contextOut: Partial<SubagentContext>;

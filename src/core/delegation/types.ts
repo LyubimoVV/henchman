@@ -17,7 +17,7 @@ export interface DelegationTask {
 
 export interface DelegationResult {
   taskId: string;
-  status: 'success' | 'error' | 'pending';
+  status: 'success' | 'error' | 'partial' | 'pending';
   data: unknown;
   contextOut: Partial<SubagentContext>;
   logs: string[];
@@ -51,6 +51,8 @@ export interface DelegationExecutorOptions {
   gitBranch?: string;
   indexedFiles: string[];
   subagentTools: ToolDefinition[];
+  techStack?: string;
+  exitCriteria?: ExitCriteria;
 }
 
 export type AnyDelegationConfig = FanOutConfig | ChainConfig | RouterConfig;

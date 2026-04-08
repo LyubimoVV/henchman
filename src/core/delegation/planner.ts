@@ -109,7 +109,7 @@ export class TaskPlanner {
           exclude: DEFAULT_EXCLUDE,
         },
         dependencies: [],
-        tools: ['content_search', 'rag_search', 'read_file'],
+        tools: ['content_search', 'rag_search', 'read_file', 'bash'],
         priority: 'high',
       },
     ];
@@ -179,7 +179,7 @@ Return JSON array with maximum 5 subtasks:
       "fileTypes": [".ts", ".tsx"]
     },
     "dependencies": ["task_id"],
-    "tools": ["content_search", "rag_search", "read_file"],
+    "tools": ["content_search", "rag_search", "read_file", "bash"],
     "priority": "high"
   }
 ]
@@ -191,6 +191,7 @@ Rules:
 - Include tests in scope only if explicitly requested
 - Use "content_search" for exact code/component names
 - Use "rag_search" for conceptual searches
+- Use "bash" for git commands (git diff, git log, git status), running tests, and shell operations
 - Keep descriptions concise and actionable
 `;
   }
@@ -205,7 +206,7 @@ Rules:
         fileTypes: raw.scope?.fileTypes,
       },
       dependencies: raw.dependencies || [],
-      tools: raw.tools || ['content_search', 'rag_search', 'read_file'],
+      tools: raw.tools || ['content_search', 'rag_search', 'read_file', 'bash'],
       priority: raw.priority || 'medium',
     }));
   }

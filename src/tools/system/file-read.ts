@@ -1,6 +1,8 @@
 import { readFile } from 'fs/promises';
+import { isAbsolute, join } from 'path';
 import type { ToolDefinition, ToolResult } from '../../core/types';
 import { createSimpleToolSchema } from '../../llm/function-calling';
+import { getCurrentProjectPath } from './project-context';
 
 export const fileReadTool: ToolDefinition = {
   name: 'file_read',
@@ -21,19 +23,24 @@ export const fileReadTool: ToolDefinition = {
     ['path']
   ),
   execute: async (args: Record<string, unknown>): Promise<ToolResult> => {
-    const path = args['path'] as string;
+    let filePath = args['path'] as string;
     const encoding = (args['encoding'] as BufferEncoding) ?? 'utf-8';
 
-    if (!path) {
+    if (!filePath) {
       throw new Error('File path is required');
     }
 
+    const projectPath = getCurrentProjectPath();
+    if (!isAbsolute(filePath) && projectPath) {
+      filePath = join(projectPath, filePath);
+    }
+
     try {
-      const content = await readFile(path, encoding);
+      const content = await readFile(filePath, encoding);
       return {
         success: true,
         result: {
-          path,
+          path: filePath,
           content,
           size: content.length,
         },
@@ -41,10 +48,10 @@ export const fileReadTool: ToolDefinition = {
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
       if (err.code === 'ENOENT') {
-        throw new Error(`File not found: ${path}`);
+        throw new Error(`File not found: ${filePath}`);
       }
       if (err.code === 'EACCES') {
-        throw new Error(`Permission denied: ${path}`);
+        throw new Error(`Permission denied: ${filePath}`);
       }
       throw error;
     }

@@ -3,6 +3,8 @@ export interface MainAgentPromptConfig {
   gitBranch?: string;
   indexedFiles: string[];
   availableTools: string[];
+  techStack?: string;
+  projectName?: string;
 }
 
 export function buildMainAgentPrompt(config: MainAgentPromptConfig): string {
@@ -20,7 +22,13 @@ export function buildMainAgentPrompt(config: MainAgentPromptConfig): string {
 function buildRoleSection(): string {
   return `You are an AI ORCHESTRATOR managing specialized subagents.
 Your role is to DELEGATE tasks to subagents — you do NOT execute them directly.
-You have access ONLY to the "delegate" tool. Use it for ALL tasks requiring file search, code analysis, or file reading.`;
+You have access ONLY to the "delegate" tool. Use it for ALL tasks requiring file search, code analysis, or file reading.
+
+## IMPORTANT - No Intermediate Output:
+- Do NOT output reasoning, thinking, or intermediate steps
+- Do NOT say things like "I will delegate..." or "Let me search..."
+- ONLY output after receiving tool results
+- Provide FINAL ANSWER directly after tool execution`;
 }
 
 function buildContextSection(config: MainAgentPromptConfig): string {
@@ -31,6 +39,12 @@ function buildContextSection(config: MainAgentPromptConfig): string {
     `- Subagent Capabilities: ${config.indexedFiles.length} indexed files available for semantic search`,
   ];
 
+  if (config.projectName) {
+    lines.push(`- Project Name: ${config.projectName}`);
+  }
+  if (config.techStack) {
+    lines.push(`- Tech Stack: ${config.techStack}`);
+  }
   if (config.gitBranch) {
     lines.push(`- Git Branch: ${config.gitBranch}`);
   }
@@ -38,6 +52,7 @@ function buildContextSection(config: MainAgentPromptConfig): string {
   lines.push('');
   lines.push('**IMPORTANT:** You do NOT have direct access to search or file tools.');
   lines.push('You MUST use the delegate tool for ALL tasks.');
+  lines.push('Do NOT guess or fabricate information about the project. Always delegate to subagents to get accurate data.');
 
   return lines.join('\n');
 }
@@ -50,6 +65,7 @@ function buildToolsSection(): string {
 This is your ONLY tool. Use it for ALL tasks requiring file access, search, or analysis.
 
 **Subagent tools (subagents have direct access):**
+- **bash**: Execute shell commands (git diff, git log, git status, tests, build tools)
 - **glob_search**: Find files by name pattern (e.g., "**/*Client.java")
 - **content_search**: Search code content with regex, supports fileTypes and ignoreCase
 - **rag_search**: Semantic search in indexed files using vector embeddings + reranking
@@ -66,85 +82,76 @@ This is your ONLY tool. Use it for ALL tasks requiring file access, search, or a
 - Finding code by semantic description: ["rag_search", "read_file"]
 - Finding exact text/pattern: ["content_search", "read_file"]
 - General search (best coverage): ["glob_search", "content_search", "rag_search", "read_file"]
-- Exploring structure: ["list_files", "glob_search", "read_file"]`;
+- Exploring structure: ["list_files", "glob_search", "read_file"]
+- Git operations (diff, log, status, branch): ["bash"]
+- Changes/diff analysis: ["bash", "content_search", "read_file"]`;
 }
 
 function buildStrategySection(): string {
   return `## Delegation Strategy
 
-### For ANY task:
-1. **delegate** to subagent with appropriate tools
+### CRITICAL - Use FUNCTION CALLING:
+This system uses OpenAI-compatible function calling API.
+You MUST call the "delegate" tool via the function calling interface — NOT by writing JSON in your text output.
+
+### FOR ANY TASK — EXACTLY ONE DELEGATION:
+1. Call delegate ONCE (function call, not text)
 2. Receive result from subagent
-3. DONE - provide answer to user
+3. IMMEDIATELY provide FINAL ANSWER to the user
+4. STOP — do NOT delegate again
 
-### Recommended tool sets by task type:
-| Task | Tools |
-|------|-------|
-| Find class/file by name | glob_search, read_file |
-| Find code by purpose | rag_search, read_file |
-| Find exact text/pattern | content_search, read_file |
-| Analyze code | rag_search, content_search, read_file |
-| Explore project structure | list_files, glob_search, read_file |
-| Unknown/general search | glob_search, content_search, rag_search, read_file |
+### ABSOLUTE RULE — ONE DELEGATE PER REQUEST:
+- You MUST call delegate exactly ONCE per user message
+- After receiving a SUCCESSFUL result → immediately answer the user → STOP
+- NEVER create a second delegation to "verify", "clarify", or "double-check" results
+- NEVER delegate again after a successful subagent returned data
+- If the result contains file content or requested information → that IS your answer
 
-## Task Completion Rules:
-- ALWAYS use delegate for tasks requiring file access
-- STOP when subagent returns result
-- 1-2 delegations should be enough for most tasks
-- Do NOT attempt to access files directly - you don't have those tools
+### CRITICAL — NEVER ASK QUESTIONS AFTER DELEGATION:
+- Do NOT use the "question" tool after receiving delegate results
+- Do NOT ask "Would you like to see more?", "Should I elaborate?", etc.
+- If delegate returned file content → return it to the user IMMEDIATELY
+- The user's question was their request — just answer it, do not ask follow-ups
+- The ONLY valid use of "question" tool: when you genuinely cannot understand the user's initial request
 
-## Example Workflows:
+### SIMPLE TASKS (read file, find file, list directory):
+- Use a SINGLE task with ["read_file"] or ["bash"] or ["list_files"]
+- Do NOT create multiple tasks for reading one file
+- Do NOT create verification or exploration tasks alongside
 
-**Example 1: Find class by name**
-User: "Find class DeepSeekClient"
-Tool call:
-delegate({
-  pattern: "fan-out",
-  config: {
-    tasks: [{
-      description: "Find DeepSeekClient class in the project. Search by file name and content.",
-      tools: ["glob_search", "content_search", "read_file"]
-    }]
-  }
-})
-Result: [subagent found the class and provides details]
-Response: "DeepSeekClient found at src/..." [DONE]
+### Example Workflows:
 
-**Example 2: Find code by purpose**
-User: "Find authentication logic"
-Tool call:
-delegate({
-  pattern: "fan-out",
-  config: {
-    tasks: [{
-      description: "Find and analyze authentication flow and logic in the project",
-      tools: ["rag_search", "content_search", "read_file"]
-    }]
-  }
-})
-Result: [subagent analyzed authentication code]
-Response: "Authentication flow analysis: ..." [DONE]
+**Example 1: "Read .gitignore"**
+→ delegate({pattern:"fan-out",config:{tasks:[{description:"Read .gitignore file",tools:["read_file","bash"]}]}})
+→ Receive result with file content
+→ IMMEDIATELY answer: content of .gitignore
+→ STOP (do NOT ask "Want to see full content?")
 
-**Example 3: Analyze multiple files**
-User: "Analyze all Service classes"
-Tool call:
-delegate({
-  pattern: "fan-out",
-  config: {
-    tasks: [{
-      description: "Find all *Service.java files and analyze their purpose and methods",
-      tools: ["glob_search", "content_search", "read_file"]
-    }]
-  }
-})
-Result: [subagent found and analyzed all services]
-Response: "Found N Service classes: ..." [DONE]`;
+**Example 2: "Find class DeepSeekClient"**
+→ delegate({pattern:"fan-out",config:{tasks:[{description:"Find DeepSeekClient",tools:["glob_search","content_search","read_file"]}]}})
+→ Receive result
+→ Answer immediately
+→ STOP
+
+### WRONG - NEVER do this:
+- Call delegate TWICE for the same user request
+- Call delegate to "verify" or "double-check" a successful result
+- Call delegate to "explore further" after getting the answer
+- Use "question" tool after delegate returns results
+- Ask "Would you like me to show/explain/elaborate?"
+- Write JSON with "pattern" and "config" in your text output
+- Say "I will delegate..." or "Let me search..."
+- Output intermediate reasoning or planning steps`;
+
 }
 
 function buildRestrictionsSection(): string {
   return `## Restrictions:
-- Do NOT exceed 3 delegate calls without good reason
-- Do NOT delegate the same task twice with different tools
-- Do NOT try to answer code questions without delegating first
-- Do NOT tell the user you cannot do the task — always use delegate`;
+- Do NOT output any text before receiving tool results
+- Do NOT exceed 1 delegate call per request
+- Do NOT delegate the same task twice
+- Do NOT say "I will..." or "Let me..." - just execute
+- Do NOT summarize tool calls - just give final answer
+- STOP immediately after first successful result
+- NEVER create additional subagents after receiving a successful result`;
 }

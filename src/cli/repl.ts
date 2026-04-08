@@ -5,6 +5,7 @@ import { handleHelpCommand, handleToolsCommand, handleStatusCommand, handleExitC
 import { handleIndexCommand } from '../commands/reindex';
 import { agentRegistry } from '../core/agent/registry';
 import { logger } from '../core/logger';
+import { StreamContentFilter } from './stream-filter';
 
 export interface ReplOptions {
   projectPath: string;
@@ -18,16 +19,32 @@ export async function startRepl(options: ReplOptions): Promise<void> {
 
   logger.pause();
   
-  const s = p.spinner();
-  s.start('Initializing project...');
+  const initSpinner = p.spinner();
+  initSpinner.start('Initializing project...');
+
+  let activeSpinner: ReturnType<typeof p.spinner> | null = null;
+  let streamingStarted = false;
+  let contentFilter: StreamContentFilter | null = null;
 
   const orchestrator = new Orchestrator({
     projectPath: options.projectPath,
     autoIndex: true,
     onContent: (chunk) => {
-      process.stdout.write(chunk);
+      if (activeSpinner && !streamingStarted) {
+        activeSpinner.stop();
+        activeSpinner = null;
+        streamingStarted = true;
+        process.stdout.write(pc.cyan('\n'));
+      }
+      if (streamingStarted && contentFilter) {
+        contentFilter.push(chunk);
+      }
     },
     onPermissionAsk: async (toolName, _args) => {
+      if (activeSpinner) {
+        activeSpinner.stop();
+        activeSpinner = null;
+      }
       logger.resume();
       const answer = await p.confirm({
         message: `Allow tool "${toolName}" to execute?`,
@@ -36,9 +53,14 @@ export async function startRepl(options: ReplOptions): Promise<void> {
       logger.pause();
       return !p.isCancel(answer) && answer === true;
     },
+    onToolCall: (toolName) => {
+      if (activeSpinner) {
+        activeSpinner.message(`Executing ${toolName}...`);
+      }
+    },
   });
 
-  s.stop('Project initialized');
+  initSpinner.stop('Project initialized');
   logger.resume();
 
   const context = orchestrator.getContext();
@@ -191,15 +213,33 @@ export async function startRepl(options: ReplOptions): Promise<void> {
     }
 
     try {
-      process.stdout.write(pc.cyan('\nThinking... '));
+      streamingStarted = false;
+      contentFilter = new StreamContentFilter((text) => process.stdout.write(text));
+      
+      activeSpinner = p.spinner();
+      activeSpinner.start('Thinking...');
+      
       const response = await orchestrator.handleMessage(message);
-      process.stdout.write('\r' + ' '.repeat(20) + '\r');
-      console.log(pc.green('Response:'));
-      console.log(response);
+      
+      if (activeSpinner) {
+        activeSpinner.stop();
+        activeSpinner = null;
+      }
+      
+      if (streamingStarted && contentFilter) {
+        contentFilter.flush();
+        process.stdout.write('\n');
+      } else {
+        console.log(pc.green('Response:'));
+        console.log(response);
+      }
       console.log();
       console.log(pc.gray('  Commands: /help /index /tools /status /agent /stop /plan /exit'));
     } catch (error) {
-      process.stdout.write('\r' + ' '.repeat(20) + '\r');
+      if (activeSpinner) {
+        activeSpinner.stop();
+        activeSpinner = null;
+      }
       console.log(pc.red(`Error: ${(error as Error).message}`));
       console.log(pc.gray('\n  Commands: /help /index /tools /status /agent /stop /plan /exit'));
     }

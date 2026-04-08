@@ -1,7 +1,8 @@
 import { writeFile, mkdir } from 'fs/promises';
-import { dirname } from 'path';
+import { dirname, isAbsolute, join } from 'path';
 import type { ToolDefinition, ToolResult } from '../../core/types';
 import { createSimpleToolSchema } from '../../llm/function-calling';
+import { getCurrentProjectPath } from './project-context';
 
 export const fileWriteTool: ToolDefinition = {
   name: 'file_write',
@@ -26,16 +27,21 @@ export const fileWriteTool: ToolDefinition = {
     ['path', 'content']
   ),
   execute: async (args: Record<string, unknown>): Promise<ToolResult> => {
-    const path = args['path'] as string;
+    const rawPath = args['path'] as string;
     const content = args['content'] as string;
     const encoding = (args['encoding'] as BufferEncoding) ?? 'utf-8';
 
-    if (!path) {
+    if (!rawPath) {
       throw new Error('File path is required');
     }
     if (content === undefined || content === null) {
       throw new Error('Content is required');
     }
+
+    const projectPath = getCurrentProjectPath();
+    const path = !isAbsolute(rawPath) && projectPath
+      ? join(projectPath, rawPath)
+      : rawPath;
 
     try {
       const dir = dirname(path);

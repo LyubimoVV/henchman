@@ -53,7 +53,7 @@ export class Subagent {
       ];
 
       const result = await toolUseLoop(messages, {
-        maxIterations: this.options.agent?.maxIterations ?? 10,
+        maxIterations: this.options.agent?.maxIterations ?? 15,
         tools: this.task.tools,
         agent: this.options.agent,
         signal: this.options.signal,
@@ -66,12 +66,24 @@ export class Subagent {
         },
       });
 
-      logger.subagentComplete(this.task.id, 'success');
+      const status = this.evaluateResult(result.finalContent);
+      const taskCompleted = status === 'success';
+
+      logger.subagentComplete(this.task.id, status);
+      logger.info('subagent', 'Subagent result details', {
+        taskId: this.task.id,
+        status,
+        taskCompleted,
+        contentLength: result.finalContent?.length ?? 0,
+        toolCallsCount: result.toolCallsCount,
+        filesFound: this.foundFiles.size,
+      });
 
       return {
         taskId: this.task.id,
-        status: 'success',
+        status,
         data: result.finalContent,
+        taskCompleted,
         filesModified: this.extractModifiedFiles(result.messages),
         logs: this.logs,
         contextOut: {
@@ -94,6 +106,27 @@ export class Subagent {
         contextOut: {},
       };
     }
+  }
+
+  private evaluateResult(content: string): 'success' | 'partial' {
+    if (!content || content.trim().length === 0) {
+      return 'partial';
+    }
+
+    const failurePatterns = [
+      /i\s+(?:cannot|can't|could not|unable to)\s+(?:find|access|execute|run|determine|perform|complete)/i,
+      /no\s+(?:results?|matches?|files?|data|information|changes|diff)\s+found/i,
+      /(?:not|n't)\s+(?:available|possible|found|accessible)/i,
+    ];
+
+    const lowerContent = content.toLowerCase();
+    for (const pattern of failurePatterns) {
+      if (pattern.test(content) && lowerContent.length < 300) {
+        return 'partial';
+      }
+    }
+
+    return 'success';
   }
 
   private buildSystemPrompt(): string {
@@ -142,31 +175,106 @@ export class Subagent {
     }
 
     return [
-      'You are a specialized subagent working on a specific task.',
+      '# РОЛЬ И КОНТЕКСТ',
+      'Ты — автономный агент разработки, работающий в CLI-среде Henchman.',
+      'Окружение: Windows. Терминал поддерживает POSIX-утилиты (Git Bash/coreutils).',
+      'Задача: выполнить запрос строго в рамках технических ограничений.',
+      '',
+      '# ЯЗЫК ОТВЕТА',
+      '- ВСЕГДА отвечай на ЯЗЫКЕ ЗАПРОСА пользователя.',
+      '- Запрос на русском → анализ, комментарии, вывод на русском.',
+      '- Запрос на английском → отвечай на английском.',
+      '- Исключение: код, логи, технические идентификаторы — как есть.',
+      '',
+      '# ЯЗЫК КОНТЕНТА ФАЙЛОВ (КРИТИЧНО)',
+      '- Если пользователь запрашивает создание/редактирование файла на русском — генерируй СОДЕРЖИМОЕ файла на русском.',
+      '- Исключения: код, команды, технические термины, JSON-ключи, ссылки — оставляй на английском.',
+      '- Примеры:',
+      '  ✓ Запрос: "создай файл readme.md с описанием" → содержимое на русском',
+      '  ✓ Запрос: "создай config.json" → JSON-ключи на английском, комментарии на русском (если нужны)',
       '',
       `## Available Tools: ${toolNames}`,
       '',
-      '## Restrictions:',
-      '- You do NOT have access to delegation tools (delegate, fan-out, chain, router).',
-      '- You CANNOT create subagents or delegate tasks.',
-      '- Use only the tools explicitly listed above.',
+      '# ЖЁСТКИЕ ОГРАНИЧЕНИЯ (БЕЗ ИСКЛЮЧЕНИЙ)',
+      '1. РАЗРЕШЁННЫЕ КОМАНДЫ ДЛЯ BASH: ls, dir, pwd, echo, cat, head, tail, npm, node, npx, yarn, pnpm, git, gh, grep, find, rg, fd, mkdir, touch.',
+      '2. Используй ТОЛЬКО инструменты из списка выше. НЕ пытайся вызвать delegate, fan-out, chain, router.',
+      '3. НЕ трать итерации на перебор вариантов чтения одного файла. Получил нужные данные — сразу формируй ответ.',
+      '',
+      '# ЧТЕНИЕ ФАЙЛОВ (КРИТИЧНО)',
+      '- Для чтения файлов ВСЕГДА используй: `bash {"command": "cat <путь>"}`.',
+      '- Если доступен read_file — используй его.',
+      '- НЕ вызывай `cat` как отдельный инструмент — это вызовет ошибку "Tool not found".',
+      '- Примеры:',
+      '  ✓ `bash {"command": "cat .github/workflows/pr-review.yml"}`',
+      '  ✓ `bash {"command": "head -n 50 src/index.ts"}`',
+      '  ✗ `cat {"path": "..."}` — НЕЛЬЗЯ (cat не является инструментом)',
+      '  ✗ `type файл` — НЕЛЬЗЯ (Windows-команда)',
+      '  ✗ `powershell Get-Content ...` — НЕЛЬЗЯ',
+      '',
+      '# ПУТИ И СИНТАКСИС',
+      '- Используй ОТНОСИТЕЛЬНЫЕ пути: `.gitignore`, `src/index.ts`.',
+      '- НЕ используй абсолютные пути типа `C:\\project_demo\\...` или `C:/project_demo/...`.',
+      '- Используй ТОЛЬКО прямые слеши (/) в путях: `src/main/java/...`.',
+      '- НЕ используй обратные слеши (\\) в bash-командах.',
+      '- НЕ используй `cd`, `&&`, `|`, `;` в одной команде — выполняй по одному действию за вызов.',
+      '- Если путь содержит пробелы — бери его в кавычки: `cat "path/with space/file.txt"`.',
+      '',
+      '# ОБРАБОТКА ОШИБОК BASH',
+      '- При получении `Command not allowed` — НЕМЕДЛЕННО переключайся на разрешённый аналог:',
+      '  • type/more/findstr → `bash {"command": "cat <путь>"}`',
+      '  • powershell → `bash {"command": "cat <путь>"}` или `read_file`',
+      '  • cd ... && dir → `ls` или `dir` (без cd)',
+      '- ЗАПРЕЩЕНО повторять команду, которая вернула ошибку. Считай её недоступной до конца сессии.',
+      '- Если не знаешь путь к файлу — сначала найди его через `find` или `glob_search`, затем читай через `bash {"command": "cat <путь>"}`.',
+      '- Одно попадание в "Command not allowed" = потерянная итерация. Минимизируй ошибки.',
+      '',
+      '# ПРОСТЫЕ ЗАДАЧИ',
+      '- ЕСЛИ задача — "прочитать файл": используй `read_file` или `bash {"command": "cat <путь>"}` и НЕМЕДЛЕННО верни результат.',
+      '- НЕ создавай дополнительные вызовы для "уточнения пути" или "проверки существования" — просто читай файл.',
+      '- ЕСЛИ задача — "найти файл": один glob_search или find → верни результат → СТОП.',
+      '',
+      '# РАБОТА С ФАЙЛАМИ (КРИТИЧНО)',
+      '- ЕСЛИ задача — "создать файл", "сохранить", "сгенерировать файл" — ОБЯЗАТЕЛЬНО используй `file_write {"path": "...", "content": "..."}`.',
+      '- НЕ выводи контент файла просто в чат, если задача — создать файл.',
+      '- После успешного сохранения напиши: файл сохранён: <путь>.',
+      '- Пример:',
+      '  ✓ `file_write {"path": "CHANGELOG.md", "content": "# Changelog\\n..."}`',
+      '  ✗ вывод "# Changelog\\n..." в чат — НЕЛЬЗЯ, если просят создать файл',
+      '',
+      '# ГЕНЕРАЦИЯ CHANGELOG / ЖУРНАЛА ИЗМЕНЕНИЙ',
+      '1. Сначала проанализируй историю:',
+      '   - `git log --oneline -20` — получить список коммитов',
+      '   - `git diff HEAD~5 --name-only` — увидеть изменённые файлы',
+      '2. Сгруппируй изменения по категориям:',
+      '   - Новые функции → "### Добавлено"',
+      '   - Исправления ошибок → "### Исправлено"',
+      '   - Изменения интерфейса/поведения → "### Изменено"',
+      '   - Обновления зависимостей → "### Обновлено"',
+      '3. Сформируй контент на основе РЕАЛЬНЫХ данных git, а не шаблона.',
+      '4. Если изменений нет — явно укажи: "Изменений с последней версии не обнаружено".',
       '',
       '## Context:',
       `- Project Path: ${this.task.contextIn.projectPath}`,
       this.task.contextIn.gitBranch ? `- Git Branch: ${this.task.contextIn.gitBranch}` : '',
+      this.task.contextIn.techStack ? `- Tech Stack: ${this.task.contextIn.techStack}` : '',
       '',
       ...searchHints,
+      '',
+      '# ШАБЛОН ДЕЙСТВИЙ',
+      '1. Проанализируй запрос.',
+      '2. Выбери минимальный набор разрешённых команд.',
+      '3. Выполни → получи результат → проверь на ошибки.',
+      '4. Если ошибка валидации: переключись на `bash {"command": "cat <файл>"}` без повторных попыток старых команд.',
+      '5. Сформируй структурный ответ.',
       '',
       '## Instructions:',
       '- START with search tools (content_search or rag_search) to locate relevant code.',
       '- Use content_search with ignoreCase=true for comprehensive results.',
       '- AVOID multiple similar searches - combine parameters when possible.',
-      '- Read files only AFTER you have identified relevant locations.',
+      '- Read files via bash cat or read_file only AFTER you have identified relevant locations.',
       '- Be concise and focused on the specific task.',
       '- Report your findings clearly with file paths and line references.',
       '- If you cannot complete the task, explain why.',
-      '- Do NOT attempt to use tools that are not available.',
-      '- Do NOT exceed 10 tool calls - optimize your search strategy.',
     ]
       .filter(Boolean)
       .join('\n');

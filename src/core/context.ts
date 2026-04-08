@@ -112,6 +112,8 @@ export function buildSystemPrompt(context: ConversationContext, availableTools: 
     gitBranch: context.gitBranch,
     indexedFiles: context.indexedFiles,
     availableTools,
+    techStack: context.techStack,
+    projectName: context.projectName,
   };
 
   let prompt = buildMainAgentPrompt(config);

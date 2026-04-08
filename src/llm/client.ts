@@ -6,6 +6,7 @@ import { logger } from '../core/logger';
 export interface ChatCompletionOptions {
   messages: ChatMessage[];
   tools?: ToolDescription[];
+  toolChoice?: 'auto' | 'required' | 'none';
   temperature?: number;
   maxTokens?: number;
 }
@@ -58,6 +59,41 @@ class LLMClient {
     this.model = appConfig.deepseek.model;
   }
 
+  private retryDelays = [1000, 2000, 4000];
+  private maxRetries = 3;
+
+  private isRetryableError(error: unknown): boolean {
+    if (!(error instanceof Error)) return false;
+    const msg = error.message.toLowerCase();
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === 'ECONNRESET' || code === 'ETIMEDOUT' || code === 'ECONNREFUSED'
+      || msg.includes('connection reset') || msg.includes('timed out') || msg.includes('socket hang up');
+  }
+
+  private async withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error;
+        if (this.isRetryableError(error) && attempt < this.maxRetries) {
+          const delay = this.retryDelays[attempt] ?? 4000;
+          logger.warn('main', `LLM ${label} failed, retrying`, {
+            attempt: attempt + 1,
+            maxRetries: this.maxRetries,
+            delay,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw lastError;
+  }
+
   async chatCompletion(options: ChatCompletionOptions): Promise<LLMResponse> {
     const { messages, tools, temperature = 0.7, maxTokens = 4096 } = options;
 
@@ -70,14 +106,17 @@ class LLMClient {
     try {
       const formattedMessages = this.formatMessages(messages);
 
-      const response = await this.client.chat.completions.create({
-        model: this.model,
-        messages: formattedMessages,
-        tools: tools,
-        tool_choice: tools ? 'auto' : undefined,
-        temperature,
-        max_tokens: maxTokens,
-      });
+      const response = await this.withRetry(
+        () => this.client.chat.completions.create({
+          model: this.model,
+          messages: formattedMessages,
+          tools: tools,
+          tool_choice: options.toolChoice ?? (tools ? 'auto' : undefined),
+          temperature,
+          max_tokens: maxTokens,
+        }),
+        'chatCompletion',
+      );
 
       const choice = response.choices[0];
       if (!choice) {
@@ -144,15 +183,18 @@ class LLMClient {
     const { messages, tools, temperature = 0.7, maxTokens = 4096 } = options;
     const formattedMessages = this.formatMessages(messages);
 
-    const stream = await this.client.chat.completions.create({
-      model: this.model,
-      messages: formattedMessages,
-      tools,
-      tool_choice: tools ? 'auto' : undefined,
-      temperature,
-      max_tokens: maxTokens,
-      stream: true,
-    });
+    const stream = await this.withRetry(
+      () => this.client.chat.completions.create({
+        model: this.model,
+        messages: formattedMessages,
+        tools,
+        tool_choice: options.toolChoice ?? (tools ? 'auto' : undefined),
+        temperature,
+        max_tokens: maxTokens,
+        stream: true,
+      }),
+      'streamingChatCompletion',
+    );
 
     let content = '';
     const toolCallsMap = new Map<number, { id: string; name: string; arguments: string }>();

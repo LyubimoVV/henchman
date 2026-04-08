@@ -7,6 +7,75 @@ import type {
 } from '../../core/delegation/types';
 import { logger } from '../../core/logger';
 
+export interface ExtractedDelegateCall {
+  pattern: DelegationPattern;
+  config: FanOutConfig | ChainConfig | RouterConfig;
+}
+
+const VALID_PATTERNS: DelegationPattern[] = ['fan-out', 'chain', 'router'];
+
+function isValidDelegateCall(obj: unknown): obj is { pattern: DelegationPattern; config: FanOutConfig | ChainConfig | RouterConfig } {
+  if (!obj || typeof obj !== 'object') return false;
+  const r = obj as Record<string, unknown>;
+  if (!VALID_PATTERNS.includes(r['pattern'] as DelegationPattern)) return false;
+  if (!r['config'] || typeof r['config'] !== 'object') return false;
+  const cfg = r['config'] as Record<string, unknown>;
+  if (Array.isArray(cfg['tasks']) && cfg['tasks'].length > 0) return true;
+  if (Array.isArray(cfg['routes']) && cfg['routes'].length > 0) return true;
+  return false;
+}
+
+function extractBalancedJson(text: string, startPos: number): string | null {
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = startPos; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) { escape = false; continue; }
+    if (ch === '\\' && inString) { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return text.substring(startPos, i + 1);
+    }
+  }
+  return null;
+}
+
+export function extractDelegateFromContent(content: string): ExtractedDelegateCall | null {
+  const codeBlockRe = /```(?:json)?\s*\n?([\s\S]*?)```/g;
+  let m: RegExpExecArray | null;
+  while ((m = codeBlockRe.exec(content)) !== null) {
+    try {
+      const parsed = JSON.parse(m[1]!.trim());
+      if (isValidDelegateCall(parsed)) {
+        logger.info('tool', 'Extracted delegate call from content (code block)');
+        return { pattern: parsed.pattern, config: parsed.config };
+      }
+    } catch { /* skip */ }
+  }
+
+  const patternKeyRe = /"pattern"\s*:\s*"(?:fan-out|chain|router)"/g;
+  let patternMatch: RegExpExecArray | null;
+  while ((patternMatch = patternKeyRe.exec(content)) !== null) {
+    const jsonStart = content.lastIndexOf('{', patternMatch.index);
+    if (jsonStart === -1) continue;
+    const jsonStr = extractBalancedJson(content, jsonStart);
+    if (!jsonStr) continue;
+    try {
+      const parsed = JSON.parse(jsonStr);
+      if (isValidDelegateCall(parsed)) {
+        logger.info('tool', 'Extracted delegate call from content (balanced JSON)');
+        return { pattern: parsed.pattern, config: parsed.config };
+      }
+    } catch { /* skip */ }
+  }
+
+  return null;
+}
+
 type DelegateToolExecutor = (args: Record<string, unknown>) => Promise<ToolResult>;
 
 interface DelegateToolDeps {
@@ -127,14 +196,11 @@ export function createDelegateTool(deps: DelegateToolDeps): ToolDefinition {
     name: 'delegate',
     category: 'system',
     description:
-      'Delegate tasks to specialized subagents who have direct access to search and file tools. ' +
-      'YOU MUST USE THIS TOOL FOR ALL tasks requiring file search, code analysis, or file reading. ' +
-      'Subagent tools: glob_search, content_search, rag_search, read_file, list_files. ' +
+      'Delegate tasks to specialized subagents. ' +
+      'YOU MUST USE THIS TOOL for ALL tasks requiring file search, code analysis, or file reading. ' +
+      'Subagent tools: bash, glob_search, content_search, rag_search, read_file, list_files. ' +
       'Patterns: fan-out (parallel), chain (sequential), router (conditional). ' +
-      'Examples: ' +
-      'delegate({pattern:"fan-out",config:{tasks:[{description:"Find DeepSeekClient class",tools:["glob_search","rag_search","read_file"]}]}}) ' +
-      'delegate({pattern:"fan-out",config:{tasks:[{description:"Analyze authentication flow",tools:["rag_search","content_search","read_file"]}]}}) ' +
-      'delegate({pattern:"chain",config:{tasks:[{description:"Find all Service classes",tools:["glob_search"]},{description:"Read and summarize each",tools:["read_file"]}]}})',
+      'Example: delegate({pattern:"fan-out",config:{tasks:[{description:"Find X",tools:["glob_search","content_search","read_file"]}]}})',
     parameters: createDelegateSchema(),
     execute,
   };
