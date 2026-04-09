@@ -7,16 +7,23 @@ AI Developer Assistant с RAG, MCP и субагентами.
 ```
 ┌─────────────────────────────────────────────────────┐
 │                    CLI Layer                         │
-│            (REPL / One-shot / Commands)              │
+│     (REPL / One-shot / Streaming / Commands)         │
 └──────────────────────┬──────────────────────────────┘
-                        │
-                        ▼
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────┐
+│              Agent Registry + Permissions            │
+│  (build, plan, explore, general, compaction, title)  │
+└──────────────────────┬──────────────────────────────┘
+                         │
+                         ▼
 ┌─────────────────────────────────────────────────────┐
 │                 MAIN AGENT (Orchestrator)            │
 │  - Intent extraction via LLM                        │
 │  - Tool selection (function calling)                │
-│  - Subagent lifecycle management                    │
+│  - Subagent lifecycle + session management           │
 │  - Delegation patterns (fan-out, chain, router)     │
+│  - Human-in-the-loop (permissions, questions)        │
 └────┬──────────┬──────────┬──────────────────────────┘
      │          │          │
      ▼          ▼          ▼
@@ -30,10 +37,60 @@ AI Developer Assistant с RAG, MCP и субагентами.
 
 - **RAG**: Семантический поиск по документации проекта (Ollama embeddings + rerank)
 - **MCP**: Git-интеграция (branch, diff), работа с файлами
-- **Субагенты**: Изолированные агенты для специфических задач
+- **Typed Agents**: 6 встроенных агентов с разными ролями и правами
+- **Permissions**: allow/deny/ask для каждого инструмента по агенту
+- **Sessions**: Персистентные сессии в `~/.henchman/sessions/`
+- **Streaming**: Real-time вывод с фильтрацией технического контента
+- **Human-in-the-loop**: Подтверждение действий и вопросы пользователю
 - **Function Calling**: LLM выбирает инструменты по смыслу запроса
+- **Паттерны делегирования**: Fan-Out, Chain, Router + DAG-планирование
 - **REPL / One-shot**: Интерактивный режим или разовый запрос
-- **Паттерны делегирования**: Fan-Out, Chain, Router
+
+## Typed Agents
+
+6 встроенных агентов с разными ролями, правами и лимитами:
+
+| Агент | Режим | Описание |
+|-------|-------|----------|
+| **build** | primary | Полный доступ, 15 итераций (по умолчанию) |
+| **plan** | primary | Read-only: bash требует подтверждения, запись запрещена |
+| **explore** | subagent | Быстрый read-only для исследования кода |
+| **general** | subagent | Многошаговый, может писать файлы |
+| **compaction** | utility | Сжатие контекста при переполнении (скрытый) |
+| **title** | utility | Генерация заголовка сессии (скрытый) |
+
+Переключение агента: `/agent build` или `/agent plan`.
+
+## Permissions
+
+Каждый агент имеет список правил для инструментов: `allow | deny | ask`.
+
+- `allow` — инструмент доступен без ограничений
+- `deny` — инструмент заблокирован
+- `ask` — требует подтверждения пользователя (human-in-the-loop)
+
+```typescript
+permissions: [
+  { tool: 'write_file', action: 'deny' },
+  { tool: 'bash', action: 'ask' },
+  { tool: '*', action: 'allow' },       // wildcard для остальных
+]
+```
+
+## Sessions
+
+Сессии хранятся в `~/.henchman/sessions/`. Каждая сессия содержит:
+- Связанный агент и статус (`active | completed | cancelled`)
+- Историю сообщений
+- `parentId` для дочерних субагентских сессий
+- Поддержка отмены через `AbortController` (`/stop`)
+
+## Streaming
+
+REPL выводит текст LLM в реальном времени. `StreamContentFilter` скрывает технический контент:
+- Блоки кода (промежуточные)
+- JSON делегирования
+- DSL-разметку
 
 ## Паттерны делегирования
 
@@ -228,7 +285,10 @@ tsx src/index.ts "Что делает этот проект?" -p /path/to/projec
 | `/help [query]` | Поиск по документации проекта |
 | `/index` | Переиндексация проекта |
 | `/tools` | Список доступных инструментов |
-| `/status` | Текущее состояние |
+| `/status` | Текущее состояние (агент, проект, tech stack) |
+| `/agent [name]` | Список агентов или переключение |
+| `/stop` | Отмена текущего выполнения |
+| `/plan <goal>` | Анализ через read-only plan-агента |
 | `/tickets` | Список тикетов поддержки |
 | `/support <ticket_id>` | Сессия поддержки по тикету |
 | `/exit` | Выход |
@@ -388,7 +448,7 @@ on:
 
 ### Кэширование RAG (опциональ)
 
- В CI индекс кэшируется для ускорения:В CI индекс кэшируется для ускорения:
+ В CI индекс кэшируется для ускорения:
 
 ```yaml
 - uses: actions/cache@v4
@@ -419,21 +479,34 @@ on:
 src/
 ├── index.ts              # Entry point
 ├── cli/
-│   ├── repl.ts           # REPL-режим
+│   ├── repl.ts           # REPL с streaming
 │   ├── oneshot.ts        # One-shot режим
+│   ├── stream-filter.ts  # Фильтр streaming-контента
 │   └── review.ts         # Code review CLI
 ├── config/
 │   └── index.ts          # Загрузка конфигурации
 ├── core/
-│   ├── orchestrator.ts   # Главный агент
-│   ├── subagent.ts       # Субагенты
+│   ├── orchestrator.ts   # Главный агент (координация, делегирование)
+│   ├── subagent.ts       # Субагенты (agent-aware, cancellable)
 │   ├── tool-registry.ts  # Реестр инструментов
 │   ├── tool-executor.ts  # Выполнение инструментов
-│   ├── tool-use-loop.ts  # Итеративный Tool Use Loop
+│   ├── tool-use-loop.ts  # Tool Use Loop (streaming, permissions, abort)
 │   ├── context.ts        # Контекст разговора
 │   ├── types.ts          # Типы
 │   ├── logger.ts         # Логгер
 │   ├── error-handler.ts  # Обработка ошибок
+│   ├── permission.ts     # Система разрешений (allow/deny/ask)
+│   ├── tech-stack.ts     # Автоопределение tech stack
+│   ├── project-structure.ts  # Анализ структуры проекта
+│   ├── agent/            # Agent Registry
+│   │   ├── types.ts       # AgentInfo, PermissionRule
+│   │   ├── registry.ts    # Реестр агентов
+│   │   └── builtins.ts    # 6 встроенных агентов
+│   ├── session/          # Sessions
+│   │   ├── types.ts       # Session type
+│   │   └── store.ts       # Персистентное хранилище сессий
+│   ├── prompts/          # Системные промпты
+│   │   └── main-agent.ts  # Промпт оркестратора
 │   └── delegation/       # Паттерны делегирования
 │       ├── types.ts       # Типы делегирования
 │       ├── base.ts        # Базовый класс executor
@@ -448,7 +521,7 @@ src/
 │       ├── manager.ts     # Фасад для делегирования
 │       └── index.ts       # Экспорт модуля
 ├── llm/
-│   ├── client.ts         # DeepSeek клиент
+│   ├── client.ts         # DeepSeek клиент (streaming + retry)
 │   └── function-calling.ts
 ├── tools/
 │   ├── system/           # System tools
@@ -456,7 +529,11 @@ src/
 │   │   ├── file-read.ts
 │   │   ├── file-write.ts
 │   │   ├── find-files.ts
-│   │   ├── content-search.ts  # Поиск по содержимому файлов
+│   │   ├── glob-search.ts       # Поиск файлов по glob-паттерну
+│   │   ├── content-search.ts    # Regex-поиск по содержимому
+│   │   ├── search-aggregator.ts # Агрегация glob + content search
+│   │   ├── question.ts          # Вопросы пользователю
+│   │   ├── project-context.ts   # Текущий путь проекта
 │   │   └── delegate.ts   # Tool для делегирования
 │   ├── mcp/              # MCP tools
 │   │   ├── git-*.ts      # Git tools
@@ -484,7 +561,10 @@ src/
 │   ├── analyzer.ts       # LLM анализ
 │   └── formatter.ts      # Форматирование вывода
 └── commands/
-    └── *.ts              # Команды CLI
+    ├── index.ts          # Роутинг команд
+    ├── support.ts        # Команда /support
+    ├── tickets.ts        # Команда /tickets
+    └── *.ts              # Остальные команды
 data/
 ├── users.json            # Пользователи поддержки
 └── tickets.json          # Тикеты поддержки
